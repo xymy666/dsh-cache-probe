@@ -10,7 +10,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)))
 
 test('client bundle registers one module and parses', async () => {
   const { text, version } = await bundleClient(root)
-  assert.equal(version, '0.4.4')
+  assert.equal(version, '0.4.5')
   assert.match(text, /window\.__ModuleLoader__\.load\(\{/u)
   assert.match(text, /id: "dsh-cache-probe"/u)
   assert.match(text, /conversation\.composer\.dock/u)

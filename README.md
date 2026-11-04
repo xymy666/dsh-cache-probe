@@ -167,19 +167,23 @@ start → attempt-start → attempt → wait → wait-done → done
 
 需要带 Web GUI 的 DSH profile（`web` 或 `desktop`）；CLI/headless profile 不显示页面。
 
-当前从 GitHub 安装：
+### 从 npm 安装（推荐）
+
+```sh
+dsh plugin --profile web add dsh-cache-probe
+```
+
+`desktop` profile 把 `web` 换成 `desktop`。npm 包是预构建版本，安装时不需要 `allowBuilds` 授权。
+
+### 从 GitHub 安装
+
+npm 不可用时，也可以直接指向仓库：
 
 ```sh
 dsh plugin --profile web add https://github.com/xymy666/dsh-cache-probe
 ```
 
-`desktop` profile 把 `web` 换成 `desktop`。安装后重启 DSH 一次，让 Host 路由加载；之后刷新页面即可。
-
-npm 包发布后，也可以直接用包名安装：
-
-```sh
-dsh plugin --profile web add dsh-cache-probe
-```
+安装后重启 DSH 一次，让 Host 路由加载；之后刷新页面即可。
 
 本地开发时用 `link:` 指向 checkout：
 

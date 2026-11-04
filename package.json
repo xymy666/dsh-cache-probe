@@ -1,6 +1,6 @@
 {
   "name": "dsh-cache-probe",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "独立页面测试任意已配置渠道的提示词缓存命中率、响应速度，并用鹈鹕 SVG 检验模型输出。",
   "license": "MIT",
   "author": "xymy666",
