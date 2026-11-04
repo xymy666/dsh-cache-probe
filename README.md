@@ -181,6 +181,12 @@ dsh plugin --profile web add dsh-cache-probe
 
 `desktop` profile 把 `web` 换成 `desktop`。安装后重启 DSH 一次，让 Host 路由加载；之后刷新页面即可。
 
+npm 包还没发布时，可以直接从 GitHub 安装：
+
+```sh
+dsh plugin --profile web add https://github.com/xymy666/dsh-cache-probe
+```
+
 本地开发时用 `link:` 指向 checkout：
 
 ```sh
