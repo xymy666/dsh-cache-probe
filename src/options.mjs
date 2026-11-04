@@ -1,0 +1,145 @@
+/**
+ * Shared execution controls for the channel-test page's host routes.
+ *
+ * The page posts structured JSON, so there is no command-line grammar any more.
+ * These helpers still validate every number at the trust boundary: defaults are
+ * filled in, unknown keys are ignored, and out-of-range values become a 400
+ * instead of a provider call.
+ *
+ * @module dsh-cache-probe/options
+ */
+
+/** Cache-test defaults. */
+export const CACHE_DEFAULTS = Object.freeze({
+  size: 12_000,
+  rounds: 2,
+  wait: 10,
+  timeout: 120,
+})
+
+/** Cache-test inclusive ranges. `rounds` has no upper bound. */
+export const CACHE_LIMITS = Object.freeze({
+  size: [2_000, 200_000],
+  rounds: [1, Number.POSITIVE_INFINITY],
+  wait: [0, 120],
+  timeout: [10, 300],
+})
+
+/** Speed-test defaults. */
+export const SPEED_DEFAULTS = Object.freeze({
+  tokens: 256,
+  rounds: 3,
+  gap: 1,
+  timeout: 120,
+})
+
+/** Speed-test inclusive ranges. `rounds` has no upper bound. */
+export const SPEED_LIMITS = Object.freeze({
+  tokens: [32, 2_048],
+  rounds: [1, Number.POSITIVE_INFINITY],
+  gap: [0, 30],
+  timeout: [10, 300],
+})
+
+/** Pelican-test defaults. */
+export const PELICAN_DEFAULTS = Object.freeze({
+  tokens: 2_048,
+  timeout: 120,
+})
+
+/** Pelican-test inclusive ranges. */
+export const PELICAN_LIMITS = Object.freeze({
+  tokens: [256, 4_096],
+  timeout: [10, 300],
+})
+
+/** Rejected option payload. */
+export class OptionError extends Error {
+  /**
+   * @param message - human-facing diagnostic.
+   */
+  constructor(message) {
+    super(message)
+    this.name = 'OptionError'
+    this.code = 'INVALID_OPTION'
+  }
+}
+
+/**
+ * Normalize one cache-test option object.
+ * @param input - untrusted object from the page, or undefined.
+ * @returns a complete frozen option object.
+ * @throws {OptionError} for a non-integer or out-of-range value.
+ */
+export function normalizeCacheOptions(input) {
+  return normalize(input, CACHE_DEFAULTS, CACHE_LIMITS, 'cache')
+}
+
+/**
+ * Normalize one speed-test option object.
+ * @param input - untrusted object from the page, or undefined.
+ * @returns a complete frozen option object.
+ * @throws {OptionError} for a non-integer or out-of-range value.
+ */
+export function normalizeSpeedOptions(input) {
+  return normalize(input, SPEED_DEFAULTS, SPEED_LIMITS, 'speed')
+}
+
+/**
+ * Normalize one pelican-test option object.
+ * @param input - untrusted object from the page, or undefined.
+ * @returns a complete frozen option object.
+ * @throws {OptionError} for a non-integer or out-of-range value.
+ */
+export function normalizePelicanOptions(input) {
+  return normalize(input, PELICAN_DEFAULTS, PELICAN_LIMITS, 'pelican')
+}
+
+/**
+ * Normalize any supported option family.
+ * @param input - untrusted value.
+ * @param defaults - complete defaults.
+ * @param limits - per-key inclusive ranges.
+ * @param label - family name used in diagnostics.
+ * @returns a complete frozen option object.
+ */
+function normalize(input, defaults, limits, label) {
+  if (input !== undefined && input !== null && (typeof input !== 'object' || Array.isArray(input))) {
+    throw new OptionError(`${label} 选项必须是对象`)
+  }
+  const source = input ?? {}
+  const output = {}
+  for (const [key, fallback] of Object.entries(defaults)) {
+    const value = source[key]
+    if (value === undefined) {
+      output[key] = fallback
+      continue
+    }
+    if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+      throw new OptionError(`${label}.${key} 必须是安全整数`)
+    }
+    const [minimum, maximum] = limits[key]
+    if (value < minimum || (Number.isFinite(maximum) && value > maximum)) {
+      throw new OptionError(Number.isFinite(maximum)
+        ? `${label}.${key} 必须在 ${minimum}–${maximum} 之间`
+        : `${label}.${key} 必须不小于 ${minimum}`)
+    }
+    output[key] = value
+  }
+  return Object.freeze(output)
+}
+
+/**
+ * Clamp one numeric UI value to a range, falling back when unusable.
+ * @param value - candidate number.
+ * @param limits - inclusive `[min, max]`.
+ * @param fallback - value used when the candidate is not finite.
+ * @returns an integer inside the range.
+ */
+export function clampOption(value, limits, fallback) {
+  const [minimum, maximum] = limits
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  const rounded = Math.round(value)
+  const lower = Math.max(minimum, rounded)
+  return Number.isFinite(maximum) ? Math.min(maximum, lower) : Math.min(Number.MAX_SAFE_INTEGER, lower)
+}

@@ -1,0 +1,66 @@
+{
+  "name": "dsh-cache-probe",
+  "version": "0.4.4",
+  "description": "独立页面测试任意已配置渠道的提示词缓存命中率、响应速度，并用鹈鹕 SVG 检验模型输出。",
+  "license": "MIT",
+  "author": "xymy666",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xymy666/dsh-cache-probe.git"
+  },
+  "homepage": "https://github.com/xymy666/dsh-cache-probe#readme",
+  "bugs": {
+    "url": "https://github.com/xymy666/dsh-cache-probe/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "src/*.mjs",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-chat"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node scripts/build.mjs && node --test",
+    "verify": "node scripts/build.mjs && node scripts/verify.mjs"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "dsh",
+    "cordis",
+    "cache",
+    "prompt-cache",
+    "benchmark",
+    "latency"
+  ]
+}
