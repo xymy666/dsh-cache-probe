@@ -137,6 +137,9 @@ const zh = {
   'form.reasoningCache': '缓存思考等级',
   'form.reasoningSpeed': '测速思考等级',
   'form.reasoningPelican': '鹈鹕思考等级',
+  'group.cache': '缓存测试',
+  'group.speed': '测速',
+  'group.pelican': '鹈鹕测试',
   'form.capHint': '测速本轮实际上限：{cap} tok（思考开启时会自动加 2,048 tok 预算，避免思考吃光额度、正文为空）',
   'form.roundsHint': '轮次不设上限；每轮都是真实请求，轮次越多耗时和费用越高。',
   'error.catalog': '无法加载渠道列表',
@@ -250,6 +253,9 @@ const en = {
   'form.reasoningCache': 'Cache reasoning',
   'form.reasoningSpeed': 'Speed reasoning',
   'form.reasoningPelican': 'Pelican reasoning',
+  'group.cache': 'Cache test',
+  'group.speed': 'Speed test',
+  'group.pelican': 'Pelican test',
   'form.capHint': 'Effective speed cap this run: {cap} tok (thinking adds 2,048 tok of headroom so the answer is not squeezed out).',
   'form.roundsHint': 'Rounds have no upper bound; every round is a real request, so more rounds cost more time and money.',
   'error.catalog': 'Could not load channels',
@@ -1814,38 +1820,60 @@ function reasoningLabel(effort, t) {
 }
 
 /**
- * Build the advanced controls.
+ * One labelled parameter group inside the advanced panel.
+ * @param title - group heading.
+ * @param fields - the group's field elements.
+ * @param hints - optional hint paragraphs below the grid.
+ * @returns the group element.
+ */
+function settingsGroup(title, fields, hints) {
+  const extras = (Array.isArray(hints) ? hints : [hints]).filter((hint) => hint !== null && hint !== undefined && hint !== false)
+  return h('div', { className: 'dsh-ct-group' },
+    h('h4', { className: 'dsh-ct-group-title' }, title),
+    h('div', { className: 'dsh-ct-fields' }, fields),
+    extras.length === 0 ? null : extras,
+  )
+}
+
+/**
+ * Build the advanced controls, one group per test so every field sits with the
+ * test it belongs to.
  * @param state - controller snapshot.
  * @param controller - page controller.
  * @param t - translator.
  * @param efforts - reasoning efforts the selected model advertises.
+ * @param reasoningFor - current effort id for one test kind.
  * @returns the disclosure element.
  */
 function advancedSettings(state, controller, t, efforts, reasoningFor) {
   const reasoningField = (kind, label) => effortField(label, efforts, reasoningFor(kind), (value) => controller.setReasoningOption(kind, value), t)
+  const speedCap = effectiveMaxTokens(state.speedOptions.tokens, reasoningFor('speed'))
   return h('details', { className: 'dsh-ct-advanced' },
     h('summary', null, t('label.advanced')),
     h('fieldset', { className: 'dsh-ct-fieldset', disabled: state.running },
-      h('div', { className: 'dsh-ct-fields' },
+      settingsGroup(t('group.cache'), [
         numberField(t('form.size'), state.cacheOptions.size, CACHE_LIMITS.size, (value) => controller.setCacheOption('size', value)),
         numberField(t('form.cacheRounds'), state.cacheOptions.rounds, CACHE_LIMITS.rounds, (value) => controller.setCacheOption('rounds', value)),
         numberField(t('form.wait'), state.cacheOptions.wait, CACHE_LIMITS.wait, (value) => controller.setCacheOption('wait', value)),
+        numberField(t('form.timeout'), state.cacheOptions.timeout, CACHE_LIMITS.timeout, (value) => controller.setCacheOption('timeout', value)),
+        reasoningField('cache', t('form.reasoningCache')),
+      ],
+      state.cacheOptions.rounds > 10 ? h('p', { className: 'dsh-ct-hint' }, t('form.roundsHint')) : null),
+      settingsGroup(t('group.speed'), [
         numberField(t('form.tokens'), state.speedOptions.tokens, SPEED_LIMITS.tokens, (value) => controller.setSpeedOption('tokens', value)),
         numberField(t('form.speedRounds'), state.speedOptions.rounds, SPEED_LIMITS.rounds, (value) => controller.setSpeedOption('rounds', value)),
         numberField(t('form.gap'), state.speedOptions.gap, SPEED_LIMITS.gap, (value) => controller.setSpeedOption('gap', value)),
-        numberField(t('form.timeout'), state.cacheOptions.timeout, CACHE_LIMITS.timeout, (value) => {
-          controller.setCacheOption('timeout', value)
-          controller.setSpeedOption('timeout', value)
-          controller.setPelicanOption('timeout', value)
-        }),
-        reasoningField('cache', t('form.reasoningCache')),
+        numberField(t('form.timeout'), state.speedOptions.timeout, SPEED_LIMITS.timeout, (value) => controller.setSpeedOption('timeout', value)),
         reasoningField('speed', t('form.reasoningSpeed')),
+      ],
+      [
+        state.speedOptions.rounds > 10 ? h('p', { className: 'dsh-ct-hint' }, t('form.roundsHint')) : null,
+        h('p', { className: 'dsh-ct-hint' }, t('form.capHint').replace('{cap}', formatTokens(speedCap))),
+      ]),
+      settingsGroup(t('group.pelican'), [
+        numberField(t('form.timeout'), state.pelicanOptions.timeout, PELICAN_LIMITS.timeout, (value) => controller.setPelicanOption('timeout', value)),
         reasoningField('pelican', t('form.reasoningPelican')),
-      ),
-      state.cacheOptions.rounds > 10 || state.speedOptions.rounds > 10
-        ? h('p', { className: 'dsh-ct-hint' }, t('form.roundsHint'))
-        : null,
-      t('form.capHint').replace('{cap}', formatTokens(effectiveMaxTokens(state.speedOptions.tokens, reasoningFor('speed')))),
+      ]),
     ),
   )
 }
@@ -2458,9 +2486,16 @@ const STYLES = `
 }
 .dsh-ct-advanced summary { cursor: pointer; color: var(--dsw-alias-label-secondary); font-size: 13px; }
 .dsh-ct-fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.dsh-ct-group {
+  margin-top: 10px; padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md, 8px);
+  background: var(--dsw-alias-bg-base);
+}
+.dsh-ct-group-title { margin: 0; font-size: 12px; font-weight: 600; color: var(--dsw-alias-label-secondary); }
 .dsh-ct-fields {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 10px 14px; margin-top: 12px;
+  gap: 10px 14px; margin-top: 8px;
 }
 .dsh-ct-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .dsh-ct-hint { margin: 10px 0 0; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 1.5; }

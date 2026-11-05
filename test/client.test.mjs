@@ -266,6 +266,138 @@ test('renders cache and speed result cards with attempts', () => {
     assert.ok(strings.includes('form.reasoningCache'))
     assert.ok(strings.includes('form.reasoningSpeed'))
     assert.ok(strings.includes('form.reasoningPelican'))
+    assert.ok(strings.includes('group.cache'))
+    assert.ok(strings.includes('group.speed'))
+    assert.ok(strings.includes('group.pelican'))
+  } finally {
+    globalThis.React = previousReact
+    globalThis.h = previousH
+  }
+})
+
+test('keeps one timeout per test group instead of one shared field', () => {
+  const registrations = []
+  const ctx = {
+    get(key) {
+      if (key === 'layout') return { selectPanel() {} }
+      return undefined
+    },
+    locale: {
+      bind: () => (key) => key,
+      register: () => () => {},
+    },
+    slots: {
+      inject(_name, factory) {
+        const value = factory()
+        if (value !== undefined && typeof value[Symbol.iterator] === 'function') {
+          for (const _disposer of value) { /* drain */ }
+        }
+        return () => {}
+      },
+      register(definition, component) {
+        registrations.push({ definition, component })
+        return () => {}
+      },
+    },
+    effect(fn) {
+      fn()
+    },
+  }
+  apply(ctx)
+
+  const calls = []
+  const controller = {
+    subscribe: () => () => {},
+    getSnapshot: () => ({
+      catalog: { providers: [{ id: 'a6', name: 'a6', models: [{ id: 'm1', name: 'M1' }] }] },
+      catalogError: null,
+      catalogLoading: false,
+      provider: 'a6',
+      route: { provider: 'a6', model: 'm1' },
+      modelByProvider: { a6: 'm1' },
+      sessionId: undefined,
+      cacheOptions: { size: 12_000, rounds: 2, wait: 10, timeout: 120 },
+      speedOptions: { tokens: 256, rounds: 3, gap: 1, timeout: 120 },
+      pelicanOptions: { timeout: 120 },
+      reasoningOptions: { cache: 'low', speed: 'low', pelican: 'low' },
+      cache: null,
+      speed: null,
+      pelican: null,
+      cacheCheckedAt: null,
+      speedCheckedAt: null,
+      pelicanCheckedAt: null,
+      cacheRoute: null,
+      speedRoute: null,
+      pelicanRoute: null,
+      progress: null,
+      batch: null,
+      running: false,
+      activeKind: null,
+      error: null,
+    }),
+    ensureCatalog: async () => {},
+    reloadCatalog: async () => {},
+    close() {},
+    setProvider() {},
+    setModel() {},
+    setRoute() {},
+    setCacheOption: (key, value) => calls.push(['cache', key, value]),
+    setSpeedOption: (key, value) => calls.push(['speed', key, value]),
+    setPelicanOption: (key, value) => calls.push(['pelican', key, value]),
+    setReasoningOption() {},
+    run: async () => {},
+    runAll: async () => {},
+  }
+
+  const previousReact = globalThis.React
+  const previousH = globalThis.h
+  globalThis.React = {
+    Fragment: 'Fragment',
+    useEffect() {},
+    useRef(value) {
+      return { current: value }
+    },
+    useState(value) {
+      return [value, () => {}]
+    },
+    useSyncExternalStore(_subscribe, getSnapshot) {
+      return getSnapshot()
+    },
+  }
+  globalThis.h = (type, props, ...children) => {
+    if (typeof type === 'function') return type({ ...props, children })
+    return {
+      type,
+      props,
+      children: children.flat(Infinity).filter((child) => child !== null && child !== undefined && child !== false),
+    }
+  }
+
+  try {
+    const main = registrations.find(({ definition }) => definition.name === 'main')
+    const tree = main.component({ controller, translate: (key) => key })
+    // Every `form.timeout` label owns the input that follows it, so firing each
+    // one must reach a different option set.
+    const timeouts = []
+    const walk = (node) => {
+      if (node === null || typeof node !== 'object') return
+      if (Array.isArray(node)) {
+        for (const item of node) walk(item)
+        return
+      }
+      if (node.type === 'label' && node.children[0]?.children?.[0] === 'form.timeout') {
+        timeouts.push(node.children[1])
+      }
+      for (const child of node.children ?? []) walk(child)
+    }
+    walk(tree)
+    assert.equal(timeouts.length, 3)
+    for (const input of timeouts) input.props.onChange({ target: { valueAsNumber: 200 } })
+    assert.deepEqual(calls, [
+      ['cache', 'timeout', 200],
+      ['speed', 'timeout', 200],
+      ['pelican', 'timeout', 200],
+    ])
   } finally {
     globalThis.React = previousReact
     globalThis.h = previousH
