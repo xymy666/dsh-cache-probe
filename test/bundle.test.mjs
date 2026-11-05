@@ -33,6 +33,17 @@ test('client bundle registers one module and parses', async () => {
   new Function(text)
 })
 
+test('advanced-settings selects keep an opaque background in every state', async () => {
+  const { text } = await bundleClient(root)
+  // The field select must be styled alongside the inputs...
+  assert.match(text, /\.dsh-ct-field input,\s*\.dsh-ct-field select \{/u)
+  // ...and focus must not swap the background for a transparent one.
+  assert.match(text, /\.dsh-ct-field select:focus[^{]*\{[^}]*background-color:/u)
+  // Native chrome is replaced so a focused control cannot lose its box.
+  assert.match(text, /\.dsh-ct-field select \{[^}]*appearance: none/u)
+  assert.doesNotMatch(text, /\.dsh-ct-field select:focus[^{]*\{[^}]*background:\s*transparent/u)
+})
+
 test('the factory only requires React and exports apply/inject', async () => {
   const { text } = await bundleClient(root)
   const loaded = []
