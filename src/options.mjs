@@ -50,9 +50,11 @@ export const REASONING_DEFAULT = 'low'
  * DSH reports `outputTokens` as one number that already includes the thinking
  * phase, so a cap sized for the answer alone is consumed entirely by thinking
  * and the round ends with no visible text. Measured on a6: `low` produced zero
- * answer characters at 256/512/1024 and only finished at 2048.
+ * answer characters at 256/512/1024 and only finished at 2048, so the headroom
+ * has to clear that with margin — 4096 leaves room for thinking plus an answer
+ * at the largest configurable target.
  */
-export const REASONING_HEADROOM_TOKENS = 2_048
+export const REASONING_HEADROOM_TOKENS = 4_096
 
 /**
  * Resolve the output cap one speed round actually needs.

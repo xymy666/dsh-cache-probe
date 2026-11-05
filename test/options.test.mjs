@@ -45,6 +45,7 @@ test('rejects non-objects, non-integers, and out-of-range values', () => {
 })
 
 test('adds thinking headroom only when thinking is on', () => {
+  assert.equal(REASONING_HEADROOM_TOKENS, 4_096)
   assert.equal(effectiveMaxTokens(256, 'off'), 256)
   assert.equal(effectiveMaxTokens(256, null), 256)
   assert.equal(effectiveMaxTokens(256, undefined), 256)
