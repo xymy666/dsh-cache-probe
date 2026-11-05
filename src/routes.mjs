@@ -17,7 +17,7 @@ import {
   OptionError,
   normalizeCacheOptions,
   normalizePelicanOptions,
-  normalizeReasoning,
+  normalizeReasoningSelection,
   normalizeSpeedOptions,
 } from './options.mjs'
 import {
@@ -128,7 +128,7 @@ async function handleRun(ctx, req, res, gate) {
     cacheOptions = normalizeCacheOptions(body.cache)
     speedOptions = normalizeSpeedOptions(body.speed)
     pelicanOptions = normalizePelicanOptions(body.pelican)
-    reasoning = normalizeReasoning(body.reasoning)
+    reasoning = normalizeReasoningSelection(body.reasoning)
   } catch (error) {
     writeError(res, error)
     return
@@ -190,7 +190,7 @@ async function executeRun(input, hooks = {}) {
       llm: ctx.llm,
       route,
       options: cacheOptions,
-      reasoning,
+      reasoning: reasoning.cache,
       signal: hooks.signal,
       sleep: hooks.sleep,
       onAttemptStart: hooks.onAttemptStart,
@@ -204,7 +204,7 @@ async function executeRun(input, hooks = {}) {
       attempts: result.attempts,
       payloadChars: result.payloadChars,
       sessionChannels,
-      reasoning,
+      reasoning: reasoning.cache,
     })
     return {
       ok: true,
@@ -230,7 +230,7 @@ async function executeRun(input, hooks = {}) {
         llm: ctx.llm,
         route,
         options: pelicanOptions,
-        reasoning,
+        reasoning: reasoning.pelican,
         signal: hooks.signal,
       }) }
     } catch (error) {
@@ -247,7 +247,7 @@ async function executeRun(input, hooks = {}) {
       options: pelicanOptions,
       attempt,
       extracted,
-      reasoning,
+      reasoning: reasoning.pelican,
     })
     return {
       ok: true,
@@ -271,7 +271,7 @@ async function executeRun(input, hooks = {}) {
     llm: ctx.llm,
     route,
     options: speedOptions,
-    reasoning,
+    reasoning: reasoning.speed,
     signal: hooks.signal,
     sleep: hooks.sleep,
     onAttemptStart: hooks.onAttemptStart,
@@ -283,7 +283,7 @@ async function executeRun(input, hooks = {}) {
     channelName,
     options: speedOptions,
     attempts: result.attempts,
-    reasoning,
+    reasoning: reasoning.speed,
   })
   return {
     ok: true,
@@ -349,7 +349,7 @@ async function handleRunStream(input, _req, res, gate) {
       kind,
       route: { provider, model },
       channelName: resolveChannelName(ctx.llm, provider),
-      reasoning,
+      reasoning: reasoning[kind],
       options: kind === 'cache' ? cacheOptions : kind === 'speed' ? speedOptions : pelicanOptions,
       total,
     })
@@ -404,6 +404,27 @@ async function handleRunStream(input, _req, res, gate) {
 }
 
 /**
+ * Read one model's capability info from the LLM runtime.
+ *
+ * The runtime service exposes `resolveModelInfo`; `resolveModel` only exists on
+ * the adapter base class, so probing it here always misses and silently hides
+ * the reasoning metadata. Keep the second form only as a defensive fallback.
+ * @param llm - host LLM runtime.
+ * @param provider - provider route id.
+ * @param model - exact model id.
+ * @returns the resolved info, or undefined when the runtime cannot describe it.
+ */
+async function resolveModelInfo(llm, provider, model) {
+  try {
+    if (typeof llm.resolveModelInfo === 'function') return await llm.resolveModelInfo(provider, model)
+    if (typeof llm.resolveModel === 'function') return await llm.resolveModel(provider, model)
+  } catch {
+    // A model that cannot report its capabilities still lists normally.
+  }
+  return undefined
+}
+
+/**
  * List active providers and their advertised models.
  * @param ctx - host context.
  * @returns provider directory entries; a failing provider keeps an `error` string.
@@ -415,20 +436,13 @@ async function buildCatalog(ctx) {
       const models = await ctx.llm.listModels(entry.id)
       const described = []
       for (const model of models) {
-        let reasoning
-        try {
-          if (typeof ctx.llm.resolveModel === 'function') {
-            const info = await ctx.llm.resolveModel(entry.id, model.id)
-            if (info?.reasoning !== undefined) {
-              reasoning = {
-                efforts: info.reasoning.efforts.map((effort) => ({ id: effort.id, name: effort.name })),
-                ...(info.reasoning.defaultEffort === undefined ? {} : { defaultEffort: info.reasoning.defaultEffort }),
-              }
+        const info = await resolveModelInfo(ctx.llm, entry.id, model.id)
+        const reasoning = info?.reasoning === undefined
+          ? undefined
+          : {
+              efforts: info.reasoning.efforts.map((effort) => ({ id: effort.id, name: effort.name })),
+              ...(info.reasoning.defaultEffort === undefined ? {} : { defaultEffort: info.reasoning.defaultEffort }),
             }
-          }
-        } catch {
-          // A model that cannot report its capabilities still lists normally.
-        }
         described.push({
           id: model.id,
           name: model.name,

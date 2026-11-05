@@ -44,6 +44,9 @@ export const SPEED_LIMITS = Object.freeze({
 /** Default reasoning effort for every probe request. */
 export const REASONING_DEFAULT = 'low'
 
+/** The three tests, each with its own reasoning selection. */
+export const REASONING_KINDS = Object.freeze(['cache', 'speed', 'pelican'])
+
 /** Pelican-test defaults. It has no output cap: the model ends on its own. */
 export const PELICAN_DEFAULTS = Object.freeze({
   timeout: 120,
@@ -97,22 +100,50 @@ export function normalizePelicanOptions(input) {
 }
 
 /**
- * Normalize the shared reasoning-effort selection.
+ * Normalize one reasoning-effort value.
  *
  * The value is a model-declared effort id (`off`, `low`, `high`, `max`, ...).
- * An absent value means "no explicit override"; the LLM layer then picks its
- * own lowest advertised effort (or none for a non-reasoning model). Whether the
- * selected model actually offers an explicit id is checked before any provider
- * I/O, so this boundary only rejects non-strings.
+ * `null` means the model offers no reasoning at all, and `undefined` means "no
+ * explicit override" — the LLM layer then picks its own lowest advertised
+ * effort. Whether the selected model actually offers an explicit id is checked
+ * before any provider I/O, so this boundary only rejects non-strings.
  * @param input - untrusted value from the page.
- * @returns a non-empty effort id, or undefined when not supplied.
- * @throws {OptionError} for a non-string or empty value.
+ * @returns a trimmed effort id, null, or undefined.
+ * @throws {OptionError} for a non-string, non-null non-empty value.
  */
 export function normalizeReasoning(input) {
   if (input === undefined || input === null || input === '') return undefined
   if (typeof input !== 'string') throw new OptionError('reasoning 必须是字符串')
   if (input.trim().length === 0) throw new OptionError('reasoning 不能为空')
   return input.trim()
+}
+
+/**
+ * Normalize the per-test reasoning selection.
+ *
+ * Accepts the current `{ cache, speed, pelican }` object or the 0.5.0 single
+ * string form, and always answers with all three keys so a caller can read any
+ * of them without checking. Missing or unusable entries fall back to the
+ * default effort.
+ * @param input - untrusted value from the page.
+ * @returns a frozen `{ cache, speed, pelican }` object.
+ * @throws {OptionError} for a malformed value.
+ */
+export function normalizeReasoningSelection(input) {
+  let source = input
+  if (typeof source === 'string') {
+    const shared = normalizeReasoning(source)
+    source = shared === undefined ? {} : { cache: shared, speed: shared, pelican: shared }
+  }
+  if (source !== undefined && source !== null && (typeof source !== 'object' || Array.isArray(source))) {
+    throw new OptionError('reasoning 必须是对象或字符串')
+  }
+  const values = source ?? {}
+  const output = {}
+  for (const kind of REASONING_KINDS) {
+    output[kind] = normalizeReasoning(values[kind]) ?? REASONING_DEFAULT
+  }
+  return Object.freeze(output)
 }
 
 /**

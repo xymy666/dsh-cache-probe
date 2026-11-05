@@ -12,6 +12,7 @@ import {
   normalizeCacheOptions,
   normalizePelicanOptions,
   normalizeReasoning,
+  normalizeReasoningSelection,
   normalizeSpeedOptions,
 } from '../src/options.mjs'
 
@@ -41,13 +42,34 @@ test('rejects non-objects, non-integers, and out-of-range values', () => {
   assert.throws(() => normalizePelicanOptions('x'), OptionError)
 })
 
-test('normalizes the shared reasoning level', () => {
+test('normalizes one reasoning level', () => {
   assert.equal(normalizeReasoning(undefined), undefined)
   assert.equal(normalizeReasoning(''), undefined)
   assert.equal(normalizeReasoning('off'), 'off')
-  assert.equal(normalizeReasoning('max'), 'max')
+  assert.equal(normalizeReasoning(' max '), 'max')
   assert.throws(() => normalizeReasoning(1), /必须是字符串/u)
   assert.throws(() => normalizeReasoning('   '), /不能为空/u)
+})
+
+test('splits reasoning into one selection per test', () => {
+  assert.deepEqual(normalizeReasoningSelection(undefined), {
+    cache: REASONING_DEFAULT,
+    speed: REASONING_DEFAULT,
+    pelican: REASONING_DEFAULT,
+  })
+  assert.deepEqual(normalizeReasoningSelection({ cache: 'off', pelican: 'max' }), {
+    cache: 'off',
+    speed: REASONING_DEFAULT,
+    pelican: 'max',
+  })
+  assert.deepEqual(normalizeReasoningSelection('off'), {
+    cache: 'off',
+    speed: 'off',
+    pelican: 'off',
+  })
+  assert.equal(Object.isFrozen(normalizeReasoningSelection({})), true)
+  assert.throws(() => normalizeReasoningSelection(1), /必须是对象或字符串/u)
+  assert.throws(() => normalizeReasoningSelection([]), /必须是对象或字符串/u)
 })
 
 test('ignores the removed pelican token cap', () => {

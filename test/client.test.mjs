@@ -191,6 +191,7 @@ test('renders cache and speed result cards with attempts', () => {
       cacheOptions: { size: 12_000, rounds: 2, wait: 10, timeout: 120 },
       speedOptions: { tokens: 256, rounds: 3, gap: 1, timeout: 120 },
       pelicanOptions: { timeout: 120 },
+      reasoningOptions: { cache: 'low', speed: 'low', pelican: 'low' },
       cache: cacheResult,
       speed: speedResult,
       cacheCheckedAt: Date.now() - 60_000,
@@ -211,6 +212,7 @@ test('renders cache and speed result cards with attempts', () => {
     setRoute() {},
     setCacheOption() {},
     setSpeedOption() {},
+    setReasoningOption() {},
     run: async () => {},
     runAll: async () => {},
   }
@@ -261,6 +263,9 @@ test('renders cache and speed result cards with attempts', () => {
     assert.ok(strings.includes('a6中转 / m1'))
     assert.ok(strings.includes('HS / m2'))
     assert.ok(strings.includes('label.fromRoute'))
+    assert.ok(strings.includes('form.reasoningCache'))
+    assert.ok(strings.includes('form.reasoningSpeed'))
+    assert.ok(strings.includes('form.reasoningPelican'))
   } finally {
     globalThis.React = previousReact
     globalThis.h = previousH
@@ -329,6 +334,7 @@ test('renders the live progress panel while a test runs', () => {
       cacheOptions: { size: 12_000, rounds: 2, wait: 10, timeout: 120 },
       speedOptions: { tokens: 256, rounds: 3, gap: 1, timeout: 120 },
       pelicanOptions: { timeout: 120 },
+      reasoningOptions: { cache: 'low', speed: 'low', pelican: 'low' },
       cache: null,
       speed: null,
       progress,
@@ -345,6 +351,7 @@ test('renders the live progress panel while a test runs', () => {
     setRoute() {},
     setCacheOption() {},
     setSpeedOption() {},
+    setReasoningOption() {},
     run: async () => {},
     runAll: async () => {},
     cancel() {},

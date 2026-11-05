@@ -436,7 +436,6 @@ test('runs a pelican test and records its own timestamp', async () => {
       if (String(url).includes('/models')) return response(CATALOG)
       const body = JSON.parse(init.body)
       assert.equal(body.pelican.tokens, undefined)
-      assert.equal('reasoning' in body, false)
       return response({
         ok: true,
         kind: 'pelican',
@@ -498,17 +497,45 @@ test('selects, persists, and sends the reasoning effort', async () => {
     },
   })
   await controller.ensureCatalog()
-  assert.equal(controller.getSnapshot().reasoning, 'low')
-  controller.setReasoning('off')
-  assert.equal(controller.getSnapshot().reasoning, 'off')
+  assert.equal(controller.getSnapshot().reasoningOptions.cache, 'low')
+  assert.equal(controller.getSnapshot().reasoningOptions.speed, 'low')
+  assert.equal(controller.getSnapshot().reasoningOptions.pelican, 'low')
+  controller.setReasoningOption('cache', 'off')
+  controller.setReasoningOption('pelican', 'off')
+  assert.equal(controller.getSnapshot().reasoningOptions.cache, 'off')
+  assert.equal(controller.getSnapshot().reasoningOptions.speed, 'low')
+  assert.equal(controller.getSnapshot().reasoningOptions.pelican, 'off')
   await controller.run('pelican')
-  assert.equal(bodies[0].reasoning, 'off')
+  assert.deepEqual(bodies[0].reasoning, { cache: 'off', speed: 'low', pelican: 'off' })
   assert.equal(bodies[0].pelican.tokens, undefined)
 
   const persisted = Object.values(storage.dump())
     .map((value) => { try { return JSON.parse(value) } catch { return null } })
-    .find((value) => value?.reasoning === 'off')
+    .find((value) => value?.reasoning?.pelican === 'off' && value?.reasoning?.speed === 'low')
   assert.ok(persisted)
+})
+
+test('drops reasoning selections for a model without reasoning', async () => {
+  const storage = makeStorage()
+  const withReasoning = {
+    ok: true,
+    providers: [
+      { id: 'a6', name: 'a6中转', models: [{ id: 'm1', name: 'M1', reasoning: { efforts: [{ id: 'off', name: 'Off' }, { id: 'low', name: 'Low' }] } }] },
+      { id: 'plain', name: 'Plain', models: [{ id: 'm2', name: 'M2' }] },
+    ],
+    defaultRoute: { provider: 'a6', model: 'm1' },
+  }
+  const controller = createController({
+    layout: makeLayout(),
+    storage,
+    fetchImpl: async (url) => (String(url).includes('/models') ? response(withReasoning) : response({ ok: false, error: { code: 'BUSY', message: 'x' } }, 409)),
+  })
+  await controller.ensureCatalog()
+  controller.setReasoningOption('cache', 'off')
+  assert.equal(controller.getSnapshot().reasoningOptions.cache, 'off')
+  controller.setProvider('plain')
+  assert.equal(controller.getSnapshot().reasoningOptions.cache, null)
+  assert.equal(controller.getSnapshot().reasoningOptions.pelican, null)
 })
 
 test('surfaces a host error and keeps running false', async () => {

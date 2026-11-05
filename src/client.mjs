@@ -15,12 +15,13 @@ import {
   PELICAN_DEFAULTS,
   PELICAN_LIMITS,
   REASONING_DEFAULT,
+  REASONING_KINDS,
   SPEED_DEFAULTS,
   SPEED_LIMITS,
   clampOption,
   normalizeCacheOptions,
   normalizePelicanOptions,
-  normalizeReasoning,
+  normalizeReasoningSelection,
   normalizeSpeedOptions,
 } from './options.mjs'
 import {
@@ -85,7 +86,6 @@ const zh = {
   'label.channel': '测试渠道',
   'label.provider': '供应商',
   'label.model': '模型',
-  'label.reasoning': '思考等级',
   'label.noReasoning': '不支持思考',
   'label.noModels': '无可用模型',
   'label.chooseProvider': '请先选择供应商',
@@ -130,6 +130,9 @@ const zh = {
   'form.speedRounds': '测速轮数',
   'form.gap': '轮间隔秒数',
   'form.timeout': '单次超时秒数',
+  'form.reasoningCache': '缓存思考等级',
+  'form.reasoningSpeed': '测速思考等级',
+  'form.reasoningPelican': '鹈鹕思考等级',
   'form.roundsHint': '轮次不设上限；每轮都是真实请求，轮次越多耗时和费用越高。',
   'error.catalog': '无法加载渠道列表',
   'error.noRoute': '没有可用渠道',
@@ -193,7 +196,6 @@ const en = {
   'label.channel': 'Test channel',
   'label.provider': 'Provider',
   'label.model': 'Model',
-  'label.reasoning': 'Reasoning',
   'label.noReasoning': 'Not supported',
   'label.noModels': 'No models',
   'label.chooseProvider': 'Choose a provider first',
@@ -238,6 +240,9 @@ const en = {
   'form.speedRounds': 'Speed rounds',
   'form.gap': 'Round gap (s)',
   'form.timeout': 'Request timeout (s)',
+  'form.reasoningCache': 'Cache reasoning',
+  'form.reasoningSpeed': 'Speed reasoning',
+  'form.reasoningPelican': 'Pelican reasoning',
   'form.roundsHint': 'Rounds have no upper bound; every round is a real request, so more rounds cost more time and money.',
   'error.catalog': 'Could not load channels',
   'error.noRoute': 'No channel available',
@@ -346,8 +351,7 @@ export function createController(options = {}) {
     cacheOptions: stored.cache,
     speedOptions: stored.speed,
     pelicanOptions: stored.pelican,
-    reasoning: stored.reasoning,
-    cache: stored.results.cache?.payload ?? null,
+    reasoningOptions: stored.reasoning,    cache: stored.results.cache?.payload ?? null,
     speed: stored.results.speed?.payload ?? null,
     pelican: stored.results.pelican?.payload ?? null,
     cacheCheckedAt: stored.results.cache?.checkedAt ?? null,
@@ -377,16 +381,39 @@ export function createController(options = {}) {
   }
 
   /**
-   * Resolve the reasoning selection for one route against the loaded catalog.
+   * Reconcile all three reasoning selections with one model's capabilities.
+   *
+   * A model without reasoning pins every kind to null. Otherwise each kind
+   * keeps a still-supported choice and otherwise falls back to `low`, then
+   * `off`, then the first advertised effort.
+   * @param model - catalog model entry, or undefined.
+   * @param current - current `{ cache, speed, pelican }` selections.
+   * @returns a complete `{ cache, speed, pelican }` object.
+   */
+  function reconcileReasoning(model, current) {
+    const output = {}
+    for (const kind of REASONING_KINDS) {
+      output[kind] = pickReasoning(model, current?.[kind])
+    }
+    return output
+  }
+
+  /**
+   * Resolve all three selections for one route against a catalog.
+   * @param catalog - loaded catalog.
    * @param route - `{ provider, model }` or null.
-   * @param current - currently selected effort id.
-   * @returns a supported effort id, or null for a non-reasoning model.
+   * @param current - current selections.
+   * @returns a complete `{ cache, speed, pelican }` object.
    */
   function reasoningForRoute(catalog, route, current) {
-    if (route === null) return null
+    if (route === null) {
+      const empty = {}
+      for (const kind of REASONING_KINDS) empty[kind] = REASONING_DEFAULT
+      return empty
+    }
     const provider = catalogProviders(catalog).find((entry) => entry.id === route.provider)
     const model = providerModels(provider).find((entry) => entry.id === route.model)
-    return pickReasoning(model, current)
+    return reconcileReasoning(model, current)
   }
 
   /**
@@ -414,7 +441,7 @@ export function createController(options = {}) {
           provider: resolved.provider,
           route: resolved.route,
           modelByProvider: resolved.modelByProvider,
-          reasoning: reasoningForRoute(catalog, resolved.route, state.reasoning),
+          reasoningOptions: reasoningForRoute(catalog, resolved.route, state.reasoningOptions),
           catalogLoading: false,
           catalogError: null,
           ...(changed ? { progress: null, error: null } : {}),
@@ -479,7 +506,7 @@ export function createController(options = {}) {
       provider: providerId,
       route,
       modelByProvider: nextMap,
-      reasoning: pickReasoning(selectedModel, state.reasoning),
+      reasoningOptions: reconcileReasoning(selectedModel, state.reasoningOptions),
       progress: null,
       error: null,
     })
@@ -500,10 +527,10 @@ export function createController(options = {}) {
     const route = { provider: state.provider, model: modelId }
     const changed = !sameRoute(state.route, route)
     const nextMap = { ...state.modelByProvider, [state.provider]: modelId }
-    const reasoning = pickReasoning(selectedModel, state.reasoning)
+    const reasoningOptions = reconcileReasoning(selectedModel, state.reasoningOptions)
     setState(changed
-      ? { route, modelByProvider: nextMap, reasoning, progress: null, error: null }
-      : { route, modelByProvider: nextMap, reasoning })
+      ? { route, modelByProvider: nextMap, reasoningOptions, progress: null, error: null }
+      : { route, modelByProvider: nextMap, reasoningOptions })
     persistSelection(storage, state.provider, modelId, nextMap)
   }
 
@@ -524,7 +551,7 @@ export function createController(options = {}) {
       provider,
       route,
       modelByProvider: nextMap,
-      reasoning: pickReasoning(modelEntry, state.reasoning),
+      reasoningOptions: reconcileReasoning(modelEntry, state.reasoningOptions),
       ...(changed ? { progress: null, error: null } : {}),
     })
     persistSelection(storage, provider, model, nextMap)
@@ -540,7 +567,7 @@ export function createController(options = {}) {
     if (limits === undefined) return
     const next = { ...state.cacheOptions, [key]: clampOption(value, limits, state.cacheOptions[key]) }
     setState({ cacheOptions: next, progress: null, error: null })
-    persistOptions(storage, next, state.speedOptions, state.pelicanOptions, state.reasoning)
+    persistOptions(storage, next, state.speedOptions, state.pelicanOptions, state.reasoningOptions)
   }
 
   /**
@@ -553,7 +580,7 @@ export function createController(options = {}) {
     if (limits === undefined) return
     const next = { ...state.speedOptions, [key]: clampOption(value, limits, state.speedOptions[key]) }
     setState({ speedOptions: next, progress: null, error: null })
-    persistOptions(storage, state.cacheOptions, next, state.pelicanOptions, state.reasoning)
+    persistOptions(storage, state.cacheOptions, next, state.pelicanOptions, state.reasoningOptions)
   }
 
   /**
@@ -566,18 +593,21 @@ export function createController(options = {}) {
     if (limits === undefined) return
     const next = { ...state.pelicanOptions, [key]: clampOption(value, limits, state.pelicanOptions[key]) }
     setState({ pelicanOptions: next, progress: null, error: null })
-    persistOptions(storage, state.cacheOptions, state.speedOptions, next, state.reasoning)
+    persistOptions(storage, state.cacheOptions, state.speedOptions, next, state.reasoningOptions)
   }
 
   /**
-   * Select the shared reasoning effort for all three tests.
+   * Select the reasoning effort for one test.
+   * @param kind - `cache`, `speed`, or `pelican`.
    * @param value - model-declared effort id.
    */
-  function setReasoning(value) {
+  function setReasoningOption(kind, value) {
+    if (!REASONING_KINDS.includes(kind)) return
     if (typeof value !== 'string' || value.length === 0) return
-    if (state.reasoning === value) return
-    setState({ reasoning: value, progress: null, error: null })
-    persistOptions(storage, state.cacheOptions, state.speedOptions, state.pelicanOptions, value)
+    if (state.reasoningOptions[kind] === value) return
+    const next = { ...state.reasoningOptions, [kind]: value }
+    setState({ reasoningOptions: next, progress: null, error: null })
+    persistOptions(storage, state.cacheOptions, state.speedOptions, state.pelicanOptions, next)
   }
 
   /**
@@ -599,7 +629,7 @@ export function createController(options = {}) {
       route: route === null ? null : { ...route },
       channelName: provider?.name ?? route?.provider ?? '',
       options,
-      reasoning: state.reasoning,
+      reasoning: state.reasoningOptions[kind],
       total,
       attempts: [],
       activeIndex: null,
@@ -732,7 +762,7 @@ export function createController(options = {}) {
       cache: state.cacheOptions,
       speed: state.speedOptions,
       pelican: state.pelicanOptions,
-      ...(state.reasoning === null ? {} : { reasoning: state.reasoning }),
+      reasoning: state.reasoningOptions,
     }
     const controller = new AbortController()
     currentAbort = controller
@@ -1029,7 +1059,7 @@ export function createController(options = {}) {
     setCacheOption,
     setSpeedOption,
     setPelicanOption,
-    setReasoning,
+    setReasoningOption,
     run,
     runAll,
     cancel,
@@ -1188,7 +1218,7 @@ function readStored(storage) {
   let cache = { ...CACHE_DEFAULTS }
   let speed = { ...SPEED_DEFAULTS }
   let pelican = { ...PELICAN_DEFAULTS }
-  let reasoning = REASONING_DEFAULT
+  let reasoning = normalizeReasoningSelection(undefined)
   try {
     const raw = storage?.getItem?.(ROUTE_KEY)
     if (typeof raw === 'string') {
@@ -1228,9 +1258,9 @@ function readStored(storage) {
         pelican = { ...PELICAN_DEFAULTS }
       }
       try {
-        reasoning = normalizeReasoning(parsed?.reasoning) ?? REASONING_DEFAULT
+        reasoning = normalizeReasoningSelection(parsed?.reasoning)
       } catch {
-        reasoning = REASONING_DEFAULT
+        reasoning = normalizeReasoningSelection(undefined)
       }
     }
   } catch {
@@ -1307,6 +1337,8 @@ function persistSelection(storage, provider, model, modelByProvider) {
  * @param storage - Storage-like object.
  * @param cache - cache options.
  * @param speed - speed options.
+ * @param pelican - pelican options.
+ * @param reasoning - per-test reasoning selections.
  */
 function persistOptions(storage, cache, speed, pelican, reasoning) {
   try {
@@ -1428,6 +1460,7 @@ function PanelPage({ controller, translate }) {
   const selectedModel = models.find((model) => model.id === state.route?.model) ?? null
   const efforts = modelReasoning(selectedModel)
   const disabled = state.running || state.route === null || state.catalog === null
+  const reasoningFor = (kind) => state.reasoningOptions?.[kind] ?? ''
   const status = state.running
     ? state.activeKind === 'cache'
       ? t('state.cache')
@@ -1487,21 +1520,6 @@ function PanelPage({ controller, translate }) {
                   ),
               ),
             ),
-            h('label', { className: 'dsh-ct-picker' },
-              h('span', { className: 'dsh-ct-route-label' }, t('label.reasoning')),
-              h('select', {
-                className: 'dsh-ct-select',
-                value: state.reasoning ?? '',
-                disabled: state.running || efforts.length === 0,
-                onChange: (event) => {
-                  if (event.target.value !== '') controller.setReasoning(event.target.value)
-                },
-              },
-              efforts.length === 0
-                ? h('option', { value: '' }, t('label.noReasoning'))
-                : efforts.map((effort) => h('option', { key: effort.id, value: effort.id }, reasoningLabel(effort, t))),
-              ),
-            ),
           ),
           h('button', {
             className: 'dsh-ct-button',
@@ -1542,7 +1560,7 @@ function PanelPage({ controller, translate }) {
         }, t('action.pelican')),
         h('span', { className: 'dsh-ct-status' }, status),
       ),
-      advancedSettings(state, controller, t),
+      advancedSettings(state, controller, t, efforts, reasoningFor),
       state.progress === null || state.progress === undefined
         ? h('div', { className: 'dsh-ct-grid' },
             h(CacheCard, {
@@ -1790,9 +1808,12 @@ function reasoningLabel(effort, t) {
  * Build the advanced controls.
  * @param state - controller snapshot.
  * @param controller - page controller.
+ * @param t - translator.
+ * @param efforts - reasoning efforts the selected model advertises.
  * @returns the disclosure element.
  */
-function advancedSettings(state, controller, t) {
+function advancedSettings(state, controller, t, efforts, reasoningFor) {
+  const reasoningField = (kind, label) => effortField(label, efforts, reasoningFor(kind), (value) => controller.setReasoningOption(kind, value), t)
   return h('details', { className: 'dsh-ct-advanced' },
     h('summary', null, t('label.advanced')),
     h('fieldset', { className: 'dsh-ct-fieldset', disabled: state.running },
@@ -1808,10 +1829,40 @@ function advancedSettings(state, controller, t) {
           controller.setSpeedOption('timeout', value)
           controller.setPelicanOption('timeout', value)
         }),
+        reasoningField('cache', t('form.reasoningCache')),
+        reasoningField('speed', t('form.reasoningSpeed')),
+        reasoningField('pelican', t('form.reasoningPelican')),
       ),
       state.cacheOptions.rounds > 10 || state.speedOptions.rounds > 10
         ? h('p', { className: 'dsh-ct-hint' }, t('form.roundsHint'))
         : null,
+    ),
+  )
+}
+
+/**
+ * One reasoning-effort select.
+ * @param label - field label.
+ * @param efforts - advertised efforts for the selected model.
+ * @param value - current effort id.
+ * @param onChange - commit callback.
+ * @param t - translator.
+ * @returns the label element.
+ */
+function effortField(label, efforts, value, onChange, t) {
+  return h('label', { className: 'dsh-ct-field' },
+    h('span', null, label),
+    h('select', {
+      className: 'dsh-ct-select',
+      value: value ?? '',
+      disabled: efforts.length === 0,
+      onChange: (event) => {
+        if (event.target.value !== '') onChange(event.target.value)
+      },
+    },
+    efforts.length === 0
+      ? h('option', { value: '' }, t('label.noReasoning'))
+      : efforts.map((effort) => h('option', { key: effort.id, value: effort.id }, reasoningLabel(effort, t))),
     ),
   )
 }

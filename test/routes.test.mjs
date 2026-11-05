@@ -34,7 +34,8 @@ function makeLlm(options = {}) {
         ? [{ id: 'm1', name: 'M1' }]
         : [{ id: 'm2', name: 'M2' }]
     },
-    async resolveModel(provider, model) {
+    async resolveModelInfo(provider, model) {
+      if (options.reasoning === false) return { provider, id: model, name: model }
       return {
         provider,
         id: model,
@@ -177,6 +178,14 @@ test('lists active providers, models, and a default route', async () => {
   assert.deepEqual(body.defaultRoute, { provider: 'a6', model: 'm1' })
 })
 
+test('omits reasoning when the model has none', async () => {
+  const { routes } = setup({ llm: makeLlm({ reasoning: false }) })
+  const response = await invoke(routes[0], makeRequest({ method: 'GET', url: ROUTES.models }))
+  const body = response.json()
+  assert.equal('reasoning' in body.providers[0].models[0], false)
+  assert.equal('reasoning' in body.providers[1].models[0], false)
+})
+
 test('uses the session model selection for the default route', async () => {
   const session = {
     id: 's1',
@@ -222,12 +231,45 @@ test('passes the selected reasoning effort to the request', async () => {
       kind: 'speed',
       provider: 'a6',
       model: 'm1',
+      reasoning: { cache: 'low', speed: 'off', pelican: 'low' },
+      speed: { tokens: 32, rounds: 1, gap: 0, timeout: 10 },
+    },
+  }))
+  assert.equal(response.statusCode, 200)
+  assert.equal(llm.calls[0].reasoningEffort, 'off')
+})
+
+test('accepts the 0.5.0 single-string reasoning value', async () => {
+  const llm = makeLlm()
+  const { routes } = setup({ llm })
+  const response = await invoke(routes[1], makeRequest({
+    body: {
+      kind: 'speed',
+      provider: 'a6',
+      model: 'm1',
       reasoning: 'off',
       speed: { tokens: 32, rounds: 1, gap: 0, timeout: 10 },
     },
   }))
   assert.equal(response.statusCode, 200)
   assert.equal(llm.calls[0].reasoningEffort, 'off')
+})
+
+test('keeps each test on its own reasoning effort', async () => {
+  const llm = makeLlm()
+  const { routes } = setup({ llm })
+  const response = await invoke(routes[1], makeRequest({
+    body: {
+      kind: 'pelican',
+      provider: 'a6',
+      model: 'm1',
+      reasoning: { cache: 'low', speed: 'high', pelican: 'off' },
+      pelican: { timeout: 10 },
+    },
+  }))
+  assert.equal(response.statusCode, 200)
+  assert.equal(llm.calls[0].reasoningEffort, 'off')
+  assert.match(response.json().pelican.report, /思考等级：off/u)
 })
 
 test('runs a speed test and returns structured attempts plus report', async () => {
