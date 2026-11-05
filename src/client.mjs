@@ -351,7 +351,8 @@ export function createController(options = {}) {
     cacheOptions: stored.cache,
     speedOptions: stored.speed,
     pelicanOptions: stored.pelican,
-    reasoningOptions: stored.reasoning,    cache: stored.results.cache?.payload ?? null,
+    reasoningOptions: stored.reasoning,
+    cache: stored.results.cache?.payload ?? null,
     speed: stored.results.speed?.payload ?? null,
     pelican: stored.results.pelican?.payload ?? null,
     cacheCheckedAt: stored.results.cache?.checkedAt ?? null,
@@ -1850,11 +1851,17 @@ function advancedSettings(state, controller, t, efforts, reasoningFor) {
  * @returns the label element.
  */
 function effortField(label, efforts, value, onChange, t) {
+  // A saved effort the current model no longer advertises would render as an
+  // empty box: no option matches `value`, so the browser shows a blank select.
+  // Fall back to the first advertised effort instead of rendering nothing.
+  const usable = typeof value === 'string' && efforts.some((effort) => effort.id === value)
+    ? value
+    : efforts[0]?.id ?? ''
   return h('label', { className: 'dsh-ct-field' },
     h('span', null, label),
     h('select', {
       className: 'dsh-ct-select',
-      value: value ?? '',
+      value: usable,
       disabled: efforts.length === 0,
       onChange: (event) => {
         if (event.target.value !== '') onChange(event.target.value)
@@ -2423,14 +2430,19 @@ const STYLES = `
   display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 10px 14px; margin-top: 12px;
 }
-.dsh-ct-field { display: flex; flex-direction: column; gap: 4px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dsh-ct-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .dsh-ct-hint { margin: 10px 0 0; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 1.5; }
-.dsh-ct-field input {
-  height: 30px; padding: 0 8px; border-radius: var(--dsw-radius-sm);
-  border: 1px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary);
+.dsh-ct-field input,
+.dsh-ct-field select {
+  box-sizing: border-box; width: 100%; min-width: 0; max-width: none;
+  height: 30px; padding: 0 8px; border-radius: var(--dsw-radius-sm, 6px);
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.18));
+  background: var(--dsw-alias-bg-base, #fff);
+  color: var(--dsw-alias-label-primary, #1a1a1a);
   font: inherit; font-size: 13px;
 }
+.dsh-ct-field select { appearance: auto; cursor: pointer; }
+.dsh-ct-field select:disabled { cursor: default; opacity: 0.6; }
 .dsh-ct-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .dsh-ct-pelican-preview {
   max-width: 760px; margin: 4px auto 12px;
