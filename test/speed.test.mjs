@@ -170,14 +170,14 @@ test('formats a three-round speed report', () => {
     channelName: 'a6中转',
     options: { tokens: 256, rounds: 3, gap: 1, timeout: 120 },
     attempts: [
-      { index: 0, ttftMs: 410, decodeMs: 3_000, durationMs: 3_410, tps: 256 / 3, textChars: 300, summary: summary(256), finish: { kind: 'max-tokens' } },
-      { index: 1, ttftMs: 388, decodeMs: 3_050, durationMs: 3_438, tps: 255 / 3.05, textChars: 280, summary: summary(255), finish: { kind: 'max-tokens' } },
-      { index: 2, ttftMs: 402, decodeMs: 3_000, durationMs: 3_402, tps: 256 / 3, textChars: 300, summary: summary(256), finish: { kind: 'max-tokens' } },
+      { index: 0, ttftMs: 410, decodeMs: 3_000, durationMs: 3_410, tps: 256 / 3, textChars: 300, reasoningChars: 0, summary: summary(256), finish: { kind: 'max-tokens' } },
+      { index: 1, ttftMs: 388, decodeMs: 3_050, durationMs: 3_438, tps: 255 / 3.05, textChars: 280, reasoningChars: 0, summary: summary(255), finish: { kind: 'max-tokens' } },
+      { index: 2, ttftMs: 402, decodeMs: 3_000, durationMs: 3_402, tps: 256 / 3, textChars: 300, reasoningChars: 0, summary: summary(256), finish: { kind: 'max-tokens' } },
     ],
   })
   assert.match(text, /^测速 a6中转 \/ deepseek-v4\.1-flash-1017：TTFT 402ms · 85\.3 tok\/s/u)
   assert.match(text, /prompt 30 tok · 目标 256 tok · 3 轮/u)
-  assert.match(text, /① 256 tok · TTFT 410ms · 85\.3 tok\/s · 总 3\.4s/u)
+  assert.match(text, /① 256 tok · 思考 0 字 · 正文 300 字 · TTFT 410ms · 85\.3 tok\/s · 总 3\.4s/u)
   assert.match(text, /汇总：TTFT 388ms–410ms（中位 402ms）/u)
   assert.match(text, /结论：首 token 402ms，生成 85\.3 tok\/s/u)
 })
@@ -192,7 +192,7 @@ test('formats a report without usage', () => {
     ],
   })
   assert.match(text, /^测速 a6中转 \/ deepseek-v4\.1-flash-1017：TTFT 200ms/u)
-  assert.match(text, /— tok · TTFT 200ms · — · 总 1\.2s/u)
+  assert.match(text, /— tok · 思考 0 字 · 正文 20 字 · TTFT 200ms · — · 总 1\.2s/u)
   assert.match(text, /结论：首 token 200ms，输出速度无法计算（无 usage）/u)
 })
 

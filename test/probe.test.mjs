@@ -127,6 +127,37 @@ test('records a missing usage without inventing a hit', async () => {
   assert.equal(result.attempts[1].summary, undefined)
 })
 
+test('counts thinking characters separately from the answer', async () => {
+  const fake = {
+    async prepareCall(config) {
+      return {
+        config: { ...config },
+        stream: async function* stream() {
+          yield { type: 'reasoning-delta', text: 'think' }
+          yield { type: 'reasoning-delta', text: 'ing' }
+          yield { type: 'text-delta', text: 'answer' }
+          yield { type: 'usage', usage: { inputTokens: 10, outputTokens: 9, totalTokens: 19 } }
+          yield { type: 'finish', reason: { kind: 'stop' } }
+        },
+      }
+    },
+  }
+  const result = await runProbe({
+    llm: fake,
+    route: ROUTE,
+    options: OPTIONS,
+    signal: undefined,
+    sleep: async () => {},
+    now: () => 0,
+  })
+  // Warm-up and measurement run the same stream, so both carry the split.
+  for (const attempt of result.attempts) {
+    assert.equal(attempt.reasoningChars, 8)
+    assert.equal(attempt.textChars, 6)
+    assert.equal(attempt.text, 'answer')
+  }
+})
+
 test('keeps usage from an error terminal when the channel still reported it', async () => {
   const llm = fakeLlm({
     usages: [

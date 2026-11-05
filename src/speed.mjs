@@ -17,6 +17,7 @@
 import { randomUUID } from 'node:crypto'
 
 import { describeFailure } from './errors.mjs'
+import { effectiveMaxTokens } from './options.mjs'
 import {
   ProbeError,
   callOnce,
@@ -26,12 +27,10 @@ import {
 import {
   formatDuration,
   formatLatency,
-  formatOutputSplit,
   formatThroughput,
   formatTokens,
   median,
   range,
-  splitOutputTokens,
   summarizeUsage,
 } from './stats.mjs'
 
@@ -101,7 +100,7 @@ export async function runSpeedTest(input) {
         llm,
         route,
         prompt,
-        maxTokens: options.tokens,
+        maxTokens: effectiveMaxTokens(options.tokens, reasoning),
         reasoningEffort: reasoning,
         signal,
         timeoutMs: options.timeout * 1_000,
@@ -174,8 +173,9 @@ export function formatSpeedReport(input) {
   const lines = [`测速 ${channelName} / ${route.model}：${summary.headline}`]
   lines.push(`思考等级：${reasoning ?? '默认'}`)
   const firstUsage = attempts.find((attempt) => attempt.summary !== undefined)?.summary
+  const cap = effectiveMaxTokens(options.tokens, reasoning)
   lines.push(
-    `prompt ${firstUsage === undefined ? '—' : formatTokens(firstUsage.prompt)} tok · 目标 ${options.tokens} tok · ${options.rounds} 轮`,
+    `prompt ${firstUsage === undefined ? '—' : formatTokens(firstUsage.prompt)} tok · 目标 ${options.tokens} tok${cap === options.tokens ? '' : `（思考开启，实际上限 ${formatTokens(cap)} tok）`} · ${options.rounds} 轮`,
   )
 
   for (const attempt of attempts) {
@@ -188,18 +188,14 @@ export function formatSpeedReport(input) {
       lines.push(`${mark} 无 token（结束：${attempt.finish?.kind ?? 'unknown'}）`)
       continue
     }
-    const split = attempt.summary === undefined ? null : splitOutputTokens(attempt.summary)
     const pieces = [
-      attempt.summary === undefined
-        ? '— tok'
-        : `${formatOutputSplit(attempt.summary)} tok${split === null ? '' : '（思考/正文）'}`,
+      attempt.summary === undefined ? '— tok' : `${formatTokens(attempt.summary.output)} tok`,
+      `思考 ${formatTokens(attempt.reasoningChars ?? 0)} 字`,
+      `正文 ${formatTokens(attempt.textChars ?? 0)} 字`,
       `TTFT ${formatLatency(attempt.ttftMs)}`,
       formatThroughput(attempt.tps),
       `总 ${formatDuration(attempt.durationMs)}`,
     ]
-    if (attempt.summary !== undefined && attempt.summary.output > 0 && attempt.textChars === 0) {
-      pieces.push('无可见文本')
-    }
     if (attempt.finish?.kind === 'error') {
       pieces.push(`结束 ${attempt.finish.failure?.code ?? 'error'}`)
     }

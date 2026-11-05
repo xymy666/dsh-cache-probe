@@ -189,6 +189,7 @@ export async function callOnce({ llm, route, prompt, maxTokens, reasoningEffort,
     const startedAt = now()
     let firstTokenAt
     let text = ''
+    let reasoningChars = 0
     let usage
     let finish
     for await (const chunk of prepared.stream(options)) {
@@ -202,6 +203,10 @@ export async function callOnce({ llm, route, prompt, maxTokens, reasoningEffort,
         continue
       }
       if (chunk.type === 'text-delta' && typeof chunk.text === 'string') text += chunk.text
+      // Thinking text streams separately and never reaches `text`, so it has to
+      // be counted on its own: DSH's usage mapping drops reasoningTokens, which
+      // makes these character counts the only split the harness can offer.
+      if (chunk.type === 'reasoning-delta' && typeof chunk.text === 'string') reasoningChars += chunk.text.length
       if (firstTokenAt === undefined && isTokenChunk(chunk)) firstTokenAt = now()
     }
     const endedAt = now()
@@ -225,6 +230,7 @@ export async function callOnce({ llm, route, prompt, maxTokens, reasoningEffort,
       durationMs: Math.max(0, endedAt - startedAt),
       text,
       textChars: text.length,
+      reasoningChars,
     }
   } catch (error) {
     if (timedOut) throw new ProbeError('TIMEOUT', `单次请求超时（${Math.round(timeoutMs / 1_000)}s）`)

@@ -96,10 +96,11 @@ cacheReadTokens ÷ (未缓存输入 + cacheReadTokens + cacheWriteTokens)
 每轮短提示词带唯一 nonce，避免命中提示词缓存把 TTFT 测低。
 
 - **TTFT**：开始流式请求到第一个 token 分片（文本、推理或工具调用参数）。
-- **思考/正文 tok**：表格输出列显示 `XX/YY`，`XX` 是思考过程消耗的 token，`YY` 是最终答案的 token。渠道不返回 `reasoningTokens` 时只显示总数，不做拆分。
+- **输出 tok**：`usage.outputTokens`，包含思考消耗的部分。
+- **思考/正文字符数**：输出列下方显示 `思考 N 字 / 正文 M 字`，由插件自己统计流里的 `reasoning-delta` 与 `text-delta`。之所以不用 token 拆分，是因为 DSH 的 `dsh-llm-pi-ai` 适配器在 `mapUsage()` 里丢弃了渠道返回的 `completion_tokens_details.reasoning_tokens`，插件收不到真实思考 token 数；字符数是这个前提下唯一准确的口径。
 - **输出速度**：`usage.outputTokens ÷ (finish 时间 − 首 token 时间)`，也就是（思考 + 正文）的总 token 除以生成时间。
 - **总耗时**：开始流式请求到 finish。
-- 使用页面选择的思考等级；若模型把 token 都花在推理上、没有可见文本，表格会标注「无可见文本」。
+- **思考开启时自动加预算**：DSH 的 `outputTokens` 已经包含思考部分，所以「目标输出 tokens」若只按正文估算，就会被思考吃光、正文为 0 字。实测 a6 + `low`：256 / 512 / 1024 全是 0 字，2048 才写出正文。因此思考等级不是 `off` 时，实际发送的上限是 `目标 + 2,048`；高级设置里会显示本轮实际生效的上限。
 - 多轮时给出中位数与范围；只有 1 轮时不写「中位」。
 
 ## 默认参数
@@ -112,7 +113,7 @@ cacheReadTokens ÷ (未缓存输入 + cacheReadTokens + cacheWriteTokens)
 | 缓存 | 等待秒数 | 10 | 0–120 |
 | 缓存 | 单次超时 | 120s | 10–300 |
 | 测速 | 思考等级 | 低（low） | 模型声明的档位（含 off） |
-| 测速 | 目标输出 tokens | 256 | 32–2,048 |
+| 测速 | 目标输出 tokens | 256（思考关闭时即上限；开启时自动 +2,048） | 32–2,048 |
 | 测速 | 轮数 | 3 | ≥1（无上限） |
 | 测速 | 轮间隔 | 1s | 0–30 |
 | 测速 | 单次超时 | 120s | 10–300 |

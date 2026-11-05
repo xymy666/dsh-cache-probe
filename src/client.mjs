@@ -19,6 +19,7 @@ import {
   SPEED_DEFAULTS,
   SPEED_LIMITS,
   clampOption,
+  effectiveMaxTokens,
   normalizeCacheOptions,
   normalizePelicanOptions,
   normalizeReasoningSelection,
@@ -113,8 +114,9 @@ const zh = {
   'table.cacheWrite': '缓存写',
   'table.hit': '命中',
   'table.duration': '耗时',
-  'table.output': '思考/正文 tok',
-  'table.outputHint': '思考 token / 最终答案 token；速度按（思考 + 正文）÷ 生成时间计算',
+  'table.output': '输出 tok',
+  'table.outputHint': '输出 token 总数（含思考）；速度 = 总 token ÷ 生成时间。下方是思考/正文字符数',
+  'table.splitChars': '思考 {think} 字 / 正文 {answer} 字',
   'table.ttft': 'TTFT',
   'table.tps': 'tok/s',
   'table.total': '总耗时',
@@ -135,6 +137,7 @@ const zh = {
   'form.reasoningCache': '缓存思考等级',
   'form.reasoningSpeed': '测速思考等级',
   'form.reasoningPelican': '鹈鹕思考等级',
+  'form.capHint': '测速本轮实际上限：{cap} tok（思考开启时会自动加 2,048 tok 预算，避免思考吃光额度、正文为空）',
   'form.roundsHint': '轮次不设上限；每轮都是真实请求，轮次越多耗时和费用越高。',
   'error.catalog': '无法加载渠道列表',
   'error.noRoute': '没有可用渠道',
@@ -224,8 +227,9 @@ const en = {
   'table.cacheWrite': 'Cache write',
   'table.hit': 'Hit',
   'table.duration': 'Time',
-  'table.output': 'Think/Answer tok',
-  'table.outputHint': 'Thinking tokens / final answer tokens. Speed = (thinking + answer) ÷ generation time.',
+  'table.output': 'Output tok',
+  'table.outputHint': 'Total output tokens (thinking included). Speed = total tokens ÷ generation time. The line below is thinking/answer characters.',
+  'table.splitChars': 'think {think} ch / answer {answer} ch',
   'table.ttft': 'TTFT',
   'table.tps': 'tok/s',
   'table.total': 'Total',
@@ -246,6 +250,7 @@ const en = {
   'form.reasoningCache': 'Cache reasoning',
   'form.reasoningSpeed': 'Speed reasoning',
   'form.reasoningPelican': 'Pelican reasoning',
+  'form.capHint': 'Effective speed cap this run: {cap} tok (thinking adds 2,048 tok of headroom so the answer is not squeezed out).',
   'form.roundsHint': 'Rounds have no upper bound; every round is a real request, so more rounds cost more time and money.',
   'error.catalog': 'Could not load channels',
   'error.noRoute': 'No channel available',
@@ -1840,6 +1845,7 @@ function advancedSettings(state, controller, t, efforts, reasoningFor) {
       state.cacheOptions.rounds > 10 || state.speedOptions.rounds > 10
         ? h('p', { className: 'dsh-ct-hint' }, t('form.roundsHint'))
         : null,
+      t('form.capHint').replace('{cap}', formatTokens(effectiveMaxTokens(state.speedOptions.tokens, reasoningFor('speed')))),
     ),
   )
 }
@@ -2168,6 +2174,28 @@ function speedHeaders() {
 }
 
 /**
+ * One cell holding the token total above the thinking/answer character split.
+ * @param tokens - the output token total, or '—'.
+ * @param reasoningChars - thinking characters, when known.
+ * @param answerChars - answer characters, when known.
+ * @param t - translator.
+ * @returns the table cell.
+ */
+function outputCell(tokens, reasoningChars, answerChars, t) {
+  const split = reasoningChars === undefined || answerChars === undefined
+    ? null
+    : h('div', { className: 'dsh-ct-split' },
+        t('table.splitChars')
+          .replace('{think}', formatTokens(reasoningChars))
+          .replace('{answer}', formatTokens(answerChars)),
+      )
+  return h('td', { title: t('table.outputHint') },
+    h('div', null, tokens),
+    split,
+  )
+}
+
+/**
  * Build one speed attempt row.
  * @param attempt - attempt record.
  * @param t - translator.
@@ -2179,13 +2207,13 @@ function speedRow(attempt, t, columns) {
   if (attempt.error !== undefined) {
     return h('tr', { key: attempt.index }, h('td', { colSpan: columns, className: 'dsh-ct-error-cell' }, `${label}：${attempt.error.message}（${attempt.error.code}）`))
   }
-  const output = formatOutputSplit(attempt.summary)
-  const note = attempt.summary !== undefined && attempt.summary.output > 0 && attempt.textChars === 0
-    ? h('span', { className: 'dsh-ct-muted' }, `（${t('label.noVisible')}）`)
-    : null
+  const hasUsage = attempt.summary !== undefined
+  const tokens = hasUsage ? `${formatTokens(attempt.summary.output)} tok` : '—'
+  const reasoningChars = hasUsage ? attempt.reasoningChars ?? 0 : undefined
+  const answerChars = hasUsage ? attempt.textChars ?? 0 : undefined
   return h('tr', { key: attempt.index },
     h('td', null, label),
-    h('td', { title: t('table.outputHint') }, output, note),
+    outputCell(tokens, reasoningChars, answerChars, t),
     h('td', null, formatLatency(attempt.ttftMs)),
     h('td', null, attempt.ttftMs === undefined ? '—' : formatThroughput(attempt.tps)),
     h('td', null, formatDuration(attempt.durationMs)),
@@ -2200,14 +2228,10 @@ function speedRow(attempt, t, columns) {
  */
 function speedAverageRow(attempts, t) {
   const avg = averageSpeedAttempts(attempts)
-  const output = avg === null || avg.output === null
-    ? '—'
-    : avg.reasoning === null
-      ? formatTokens(avg.output)
-      : `${formatTokens(avg.reasoning)}/${formatTokens(avg.content ?? 0)}`
+  const tokens = avg === null || avg.output === null ? '—' : `${formatTokens(avg.output)} tok`
   return h('tr', { key: 'average', className: 'dsh-ct-avg-row', title: t('table.averageHint') },
     h('td', null, t('table.average')),
-    h('td', null, output),
+    outputCell(tokens, avg?.reasoningChars ?? undefined, avg?.textChars ?? undefined, t),
     h('td', null, avg === null ? '—' : formatLatency(avg.ttftMs)),
     h('td', null, avg === null ? '—' : formatThroughput(avg.tps)),
     h('td', null, avg === null ? '—' : formatDuration(avg.durationMs)),
@@ -2556,6 +2580,7 @@ const STYLES = `
 .dsh-ct-error-cell { color: var(--dsw-alias-state-error-primary); text-align: left !important; white-space: normal !important; }
 .dsh-ct-avg-row td { font-weight: 600; border-top: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-2); }
 .dsh-ct-muted { color: var(--dsw-alias-label-tertiary); }
+.dsh-ct-split { margin-top: 2px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
 .dsh-ct-subsection { margin-top: 16px; }
 .dsh-ct-subtitle { margin: 0 0 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 600; }
 .dsh-ct-report { margin-top: 14px; border-top: 1px solid var(--dsw-alias-border-l1); padding-top: 10px; }

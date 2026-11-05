@@ -6,9 +6,11 @@ import {
   CACHE_LIMITS,
   PELICAN_DEFAULTS,
   REASONING_DEFAULT,
+  REASONING_HEADROOM_TOKENS,
   SPEED_DEFAULTS,
   OptionError,
   clampOption,
+  effectiveMaxTokens,
   normalizeCacheOptions,
   normalizePelicanOptions,
   normalizeReasoning,
@@ -40,6 +42,17 @@ test('rejects non-objects, non-integers, and out-of-range values', () => {
   assert.throws(() => normalizeSpeedOptions({ gap: -1 }), /0–30/u)
   assert.throws(() => normalizePelicanOptions({ timeout: 301 }), /10–300/u)
   assert.throws(() => normalizePelicanOptions('x'), OptionError)
+})
+
+test('adds thinking headroom only when thinking is on', () => {
+  assert.equal(effectiveMaxTokens(256, 'off'), 256)
+  assert.equal(effectiveMaxTokens(256, null), 256)
+  assert.equal(effectiveMaxTokens(256, undefined), 256)
+  assert.equal(effectiveMaxTokens(256, ''), 256)
+  assert.equal(effectiveMaxTokens(256, 'low'), 256 + REASONING_HEADROOM_TOKENS)
+  assert.equal(effectiveMaxTokens(2_048, 'max'), 2_048 + REASONING_HEADROOM_TOKENS)
+  // A malformed target falls back to the documented default rather than NaN.
+  assert.equal(effectiveMaxTokens(undefined, 'off'), SPEED_DEFAULTS.tokens)
 })
 
 test('normalizes one reasoning level', () => {

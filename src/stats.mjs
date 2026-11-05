@@ -292,6 +292,8 @@ export function averageSpeedAttempts(attempts) {
     output: average(rows.map((row) => row.summary?.output)),
     reasoning: splits.length === 0 ? null : average(splits.map((split) => split.reasoning)),
     content: splits.length === 0 ? null : average(splits.map((split) => split.content)),
+    reasoningChars: average(rows.map((row) => row.reasoningChars)),
+    textChars: average(rows.map((row) => row.textChars)),
     ttftMs: average(rows.map((row) => row.ttftMs)),
     tps: average(rows.map((row) => row.tps)),
     durationMs: average(rows.map((row) => row.durationMs)),

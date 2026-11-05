@@ -44,6 +44,31 @@ export const SPEED_LIMITS = Object.freeze({
 /** Default reasoning effort for every probe request. */
 export const REASONING_DEFAULT = 'low'
 
+/**
+ * Extra output budget granted to the speed test when thinking is enabled.
+ *
+ * DSH reports `outputTokens` as one number that already includes the thinking
+ * phase, so a cap sized for the answer alone is consumed entirely by thinking
+ * and the round ends with no visible text. Measured on a6: `low` produced zero
+ * answer characters at 256/512/1024 and only finished at 2048.
+ */
+export const REASONING_HEADROOM_TOKENS = 2_048
+
+/**
+ * Resolve the output cap one speed round actually needs.
+ *
+ * Thinking-off requests keep the requested budget exactly, so a `off` run is
+ * still measured against the size the user asked for.
+ * @param target - the configured answer budget in tokens.
+ * @param effort - the selected reasoning effort, or null/undefined when none.
+ * @returns the cap to send, in tokens.
+ */
+export function effectiveMaxTokens(target, effort) {
+  const base = Number.isSafeInteger(target) && target > 0 ? target : SPEED_DEFAULTS.tokens
+  if (typeof effort !== 'string' || effort.length === 0 || effort === 'off') return base
+  return base + REASONING_HEADROOM_TOKENS
+}
+
 /** The three tests, each with its own reasoning selection. */
 export const REASONING_KINDS = Object.freeze(['cache', 'speed', 'pelican'])
 
