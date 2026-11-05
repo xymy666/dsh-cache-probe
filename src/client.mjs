@@ -29,6 +29,7 @@ import {
   averageSpeedAttempts,
   formatDuration,
   formatLatency,
+  formatOutputSplit,
   formatRate,
   formatThroughput,
   formatTokens,
@@ -112,7 +113,8 @@ const zh = {
   'table.cacheWrite': '缓存写',
   'table.hit': '命中',
   'table.duration': '耗时',
-  'table.output': '输出 tok',
+  'table.output': '思考/正文 tok',
+  'table.outputHint': '思考 token / 最终答案 token；速度按（思考 + 正文）÷ 生成时间计算',
   'table.ttft': 'TTFT',
   'table.tps': 'tok/s',
   'table.total': '总耗时',
@@ -222,7 +224,8 @@ const en = {
   'table.cacheWrite': 'Cache write',
   'table.hit': 'Hit',
   'table.duration': 'Time',
-  'table.output': 'Output tok',
+  'table.output': 'Think/Answer tok',
+  'table.outputHint': 'Thinking tokens / final answer tokens. Speed = (thinking + answer) ÷ generation time.',
   'table.ttft': 'TTFT',
   'table.tps': 'tok/s',
   'table.total': 'Total',
@@ -2176,13 +2179,13 @@ function speedRow(attempt, t, columns) {
   if (attempt.error !== undefined) {
     return h('tr', { key: attempt.index }, h('td', { colSpan: columns, className: 'dsh-ct-error-cell' }, `${label}：${attempt.error.message}（${attempt.error.code}）`))
   }
-  const output = attempt.summary === undefined ? '—' : formatTokens(attempt.summary.output)
+  const output = formatOutputSplit(attempt.summary)
   const note = attempt.summary !== undefined && attempt.summary.output > 0 && attempt.textChars === 0
     ? h('span', { className: 'dsh-ct-muted' }, `（${t('label.noVisible')}）`)
     : null
   return h('tr', { key: attempt.index },
     h('td', null, label),
-    h('td', null, output, note),
+    h('td', { title: t('table.outputHint') }, output, note),
     h('td', null, formatLatency(attempt.ttftMs)),
     h('td', null, attempt.ttftMs === undefined ? '—' : formatThroughput(attempt.tps)),
     h('td', null, formatDuration(attempt.durationMs)),
@@ -2197,9 +2200,14 @@ function speedRow(attempt, t, columns) {
  */
 function speedAverageRow(attempts, t) {
   const avg = averageSpeedAttempts(attempts)
+  const output = avg === null || avg.output === null
+    ? '—'
+    : avg.reasoning === null
+      ? formatTokens(avg.output)
+      : `${formatTokens(avg.reasoning)}/${formatTokens(avg.content ?? 0)}`
   return h('tr', { key: 'average', className: 'dsh-ct-avg-row', title: t('table.averageHint') },
     h('td', null, t('table.average')),
-    h('td', null, avg === null || avg.output === null ? '—' : formatTokens(avg.output)),
+    h('td', null, output),
     h('td', null, avg === null ? '—' : formatLatency(avg.ttftMs)),
     h('td', null, avg === null ? '—' : formatThroughput(avg.tps)),
     h('td', null, avg === null ? '—' : formatDuration(avg.durationMs)),

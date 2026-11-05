@@ -51,6 +51,41 @@ export function summarizeUsage(usage) {
 }
 
 /**
+ * Split one usage summary into thinking tokens and answer tokens.
+ *
+ * Providers bill `outputTokens` as one number that already includes the
+ * thinking phase, so the answer is the remainder. Returns null when the
+ * provider reported no reasoning count, because then the split is unknown
+ * rather than zero.
+ * @param summary - normalized usage buckets.
+ * @returns `{ reasoning, content }`, or null when the split is unknown.
+ */
+export function splitOutputTokens(summary) {
+  if (summary === undefined || summary === null) return null
+  if (!isCount(summary.reasoning) || !isCount(summary.output)) return null
+  return {
+    reasoning: summary.reasoning,
+    content: Math.max(0, summary.output - summary.reasoning),
+  }
+}
+
+/**
+ * Format one usage summary's output as `thinking/answer`.
+ *
+ * Falls back to the plain output total when the provider reported no
+ * reasoning count, so the column never claims a split it cannot know.
+ * @param summary - normalized usage buckets.
+ * @returns `1,024/256`, a plain total, or `—`.
+ */
+export function formatOutputSplit(summary) {
+  if (summary === undefined || summary === null) return '—'
+  if (!isCount(summary.output)) return '—'
+  const split = splitOutputTokens(summary)
+  if (split === null) return formatTokens(summary.output)
+  return `${formatTokens(split.reasoning)}/${formatTokens(split.content)}`
+}
+
+/**
  * Aggregate settled assistant messages from a session log by provider.
  *
  * Only `assistant/message` carries both a resolved route (`message.source`) and
@@ -251,9 +286,12 @@ export function averageSpeedAttempts(attempts) {
       && attempt.error === undefined)
     : []
   if (rows.length === 0) return null
+  const splits = rows.map((row) => splitOutputTokens(row.summary)).filter((split) => split !== null)
   return {
     count: rows.length,
     output: average(rows.map((row) => row.summary?.output)),
+    reasoning: splits.length === 0 ? null : average(splits.map((split) => split.reasoning)),
+    content: splits.length === 0 ? null : average(splits.map((split) => split.content)),
     ttftMs: average(rows.map((row) => row.ttftMs)),
     tps: average(rows.map((row) => row.tps)),
     durationMs: average(rows.map((row) => row.durationMs)),

@@ -7,13 +7,37 @@ import {
   averageSpeedAttempts,
   formatDuration,
   formatLatency,
+  formatOutputSplit,
   formatRate,
   formatThroughput,
   formatTokens,
   median,
   range,
+  splitOutputTokens,
   summarizeUsage,
 } from '../src/stats.mjs'
+
+test('splits output tokens into thinking and answer', () => {
+  assert.deepEqual(splitOutputTokens({ output: 1_024, reasoning: 768 }), {
+    reasoning: 768,
+    content: 256,
+  })
+  // No reasoning count: the split is unknown, not zero.
+  assert.equal(splitOutputTokens({ output: 256 }), null)
+  assert.equal(splitOutputTokens(undefined), null)
+  // A provider that reports more thinking than output cannot go negative.
+  assert.deepEqual(splitOutputTokens({ output: 100, reasoning: 140 }), {
+    reasoning: 140,
+    content: 0,
+  })
+})
+
+test('formats the thinking/answer split for the speed table', () => {
+  assert.equal(formatOutputSplit({ output: 1_024, reasoning: 768 }), '768/256')
+  assert.equal(formatOutputSplit({ output: 2_048, reasoning: 0 }), '0/2,048')
+  assert.equal(formatOutputSplit({ output: 256 }), '256')
+  assert.equal(formatOutputSplit(undefined), '—')
+})
 
 test('summarizes a cache hit', () => {
   const summary = summarizeUsage({

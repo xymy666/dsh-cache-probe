@@ -96,9 +96,10 @@ cacheReadTokens ÷ (未缓存输入 + cacheReadTokens + cacheWriteTokens)
 每轮短提示词带唯一 nonce，避免命中提示词缓存把 TTFT 测低。
 
 - **TTFT**：开始流式请求到第一个 token 分片（文本、推理或工具调用参数）。
-- **输出速度**：`usage.outputTokens ÷ (finish 时间 − 首 token 时间)`。
+- **思考/正文 tok**：表格输出列显示 `XX/YY`，`XX` 是思考过程消耗的 token，`YY` 是最终答案的 token。渠道不返回 `reasoningTokens` 时只显示总数，不做拆分。
+- **输出速度**：`usage.outputTokens ÷ (finish 时间 − 首 token 时间)`，也就是（思考 + 正文）的总 token 除以生成时间。
 - **总耗时**：开始流式请求到 finish。
-- 使用页面选择的思考等级；若模型把 token 都花在推理上、没有可见文本，表格会标注「无可见文本」并显示推理 token。
+- 使用页面选择的思考等级；若模型把 token 都花在推理上、没有可见文本，表格会标注「无可见文本」。
 - 多轮时给出中位数与范围；只有 1 轮时不写「中位」。
 
 ## 默认参数

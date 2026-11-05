@@ -26,10 +26,12 @@ import {
 import {
   formatDuration,
   formatLatency,
+  formatOutputSplit,
   formatThroughput,
   formatTokens,
   median,
   range,
+  splitOutputTokens,
   summarizeUsage,
 } from './stats.mjs'
 
@@ -186,10 +188,11 @@ export function formatSpeedReport(input) {
       lines.push(`${mark} 无 token（结束：${attempt.finish?.kind ?? 'unknown'}）`)
       continue
     }
+    const split = attempt.summary === undefined ? null : splitOutputTokens(attempt.summary)
     const pieces = [
       attempt.summary === undefined
         ? '— tok'
-        : `${formatTokens(attempt.summary.output)} tok${attempt.summary.reasoning === undefined ? '' : `（推理 ${formatTokens(attempt.summary.reasoning)}）`}`,
+        : `${formatOutputSplit(attempt.summary)} tok${split === null ? '' : '（思考/正文）'}`,
       `TTFT ${formatLatency(attempt.ttftMs)}`,
       formatThroughput(attempt.tps),
       `总 ${formatDuration(attempt.durationMs)}`,
