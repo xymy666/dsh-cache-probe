@@ -435,7 +435,8 @@ test('runs a pelican test and records its own timestamp', async () => {
     fetchImpl: async (url, init) => {
       if (String(url).includes('/models')) return response(CATALOG)
       const body = JSON.parse(init.body)
-      assert.equal(body.pelican.tokens, 2_048)
+      assert.equal(body.pelican.tokens, undefined)
+      assert.equal('reasoning' in body, false)
       return response({
         ok: true,
         kind: 'pelican',
@@ -457,6 +458,57 @@ test('runs a pelican test and records its own timestamp', async () => {
   assert.equal(state.pelican.svg, '<svg></svg>')
   assert.equal(typeof state.pelicanCheckedAt, 'number')
   assert.equal(state.pelicanRoute.provider, 'hs')
+})
+
+test('selects, persists, and sends the reasoning effort', async () => {
+  const storage = makeStorage()
+  const catalog = {
+    ok: true,
+    providers: [{
+      id: 'a6',
+      name: 'a6中转',
+      models: [{
+        id: 'm1',
+        name: 'M1',
+        reasoning: { efforts: [{ id: 'off', name: 'Off' }, { id: 'low', name: 'Low' }], defaultEffort: 'low' },
+      }],
+    }],
+    defaultRoute: { provider: 'a6', model: 'm1' },
+  }
+  const bodies = []
+  const controller = createController({
+    layout: makeLayout(),
+    storage,
+    fetchImpl: async (url, init) => {
+      if (String(url).includes('/models')) return response(catalog)
+      bodies.push(JSON.parse(init.body))
+      return response({
+        ok: true,
+        kind: 'pelican',
+        pelican: {
+          attempt: { index: 0, ttftMs: 300, durationMs: 1_200, tps: 40, summary: { output: 48 } },
+          text: '<svg></svg>',
+          svg: '<svg></svg>',
+          svgSource: 'inline',
+          svgLength: 11,
+          report: 'pelican report',
+          summary: { headline: '已生成 SVG', verdict: 'ok' },
+        },
+      })
+    },
+  })
+  await controller.ensureCatalog()
+  assert.equal(controller.getSnapshot().reasoning, 'low')
+  controller.setReasoning('off')
+  assert.equal(controller.getSnapshot().reasoning, 'off')
+  await controller.run('pelican')
+  assert.equal(bodies[0].reasoning, 'off')
+  assert.equal(bodies[0].pelican.tokens, undefined)
+
+  const persisted = Object.values(storage.dump())
+    .map((value) => { try { return JSON.parse(value) } catch { return null } })
+    .find((value) => value?.reasoning === 'off')
+  assert.ok(persisted)
 })
 
 test('surfaces a host error and keeps running false', async () => {

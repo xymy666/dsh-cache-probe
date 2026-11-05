@@ -14,11 +14,13 @@ import {
   CACHE_LIMITS,
   PELICAN_DEFAULTS,
   PELICAN_LIMITS,
+  REASONING_DEFAULT,
   SPEED_DEFAULTS,
   SPEED_LIMITS,
   clampOption,
   normalizeCacheOptions,
   normalizePelicanOptions,
+  normalizeReasoning,
   normalizeSpeedOptions,
 } from './options.mjs'
 import {
@@ -83,6 +85,8 @@ const zh = {
   'label.channel': '测试渠道',
   'label.provider': '供应商',
   'label.model': '模型',
+  'label.reasoning': '思考等级',
+  'label.noReasoning': '不支持思考',
   'label.noModels': '无可用模型',
   'label.chooseProvider': '请先选择供应商',
   'label.chooseModel': '请选择模型',
@@ -92,6 +96,13 @@ const zh = {
   'label.fromRoute': '来自 {route}',
   'label.textReport': '文本报告',
   'label.noVisible': '无可见文本',
+  'reasoning.off': '无思考（off）',
+  'reasoning.minimal': '最低（minimal）',
+  'reasoning.low': '低（low）',
+  'reasoning.medium': '中（medium）',
+  'reasoning.high': '高（high）',
+  'reasoning.xhigh': '很高（xhigh）',
+  'reasoning.max': '最高（max）',
   'table.round': '轮次',
   'table.warmup': '预热',
   'table.retest': '复测 {n}',
@@ -119,7 +130,6 @@ const zh = {
   'form.speedRounds': '测速轮数',
   'form.gap': '轮间隔秒数',
   'form.timeout': '单次超时秒数',
-  'form.pelicanTokens': '鹈鹕输出 tokens',
   'form.roundsHint': '轮次不设上限；每轮都是真实请求，轮次越多耗时和费用越高。',
   'error.catalog': '无法加载渠道列表',
   'error.noRoute': '没有可用渠道',
@@ -183,6 +193,8 @@ const en = {
   'label.channel': 'Test channel',
   'label.provider': 'Provider',
   'label.model': 'Model',
+  'label.reasoning': 'Reasoning',
+  'label.noReasoning': 'Not supported',
   'label.noModels': 'No models',
   'label.chooseProvider': 'Choose a provider first',
   'label.chooseModel': 'Choose a model',
@@ -192,6 +204,13 @@ const en = {
   'label.fromRoute': 'From {route}',
   'label.textReport': 'Text report',
   'label.noVisible': 'no visible text',
+  'reasoning.off': 'No thinking (off)',
+  'reasoning.minimal': 'Minimal',
+  'reasoning.low': 'Low',
+  'reasoning.medium': 'Medium',
+  'reasoning.high': 'High',
+  'reasoning.xhigh': 'Very high',
+  'reasoning.max': 'Max',
   'table.round': 'Round',
   'table.warmup': 'Warm-up',
   'table.retest': 'Retest {n}',
@@ -219,7 +238,6 @@ const en = {
   'form.speedRounds': 'Speed rounds',
   'form.gap': 'Round gap (s)',
   'form.timeout': 'Request timeout (s)',
-  'form.pelicanTokens': 'Pelican output tokens',
   'form.roundsHint': 'Rounds have no upper bound; every round is a real request, so more rounds cost more time and money.',
   'error.catalog': 'Could not load channels',
   'error.noRoute': 'No channel available',
@@ -328,6 +346,7 @@ export function createController(options = {}) {
     cacheOptions: stored.cache,
     speedOptions: stored.speed,
     pelicanOptions: stored.pelican,
+    reasoning: stored.reasoning,
     cache: stored.results.cache?.payload ?? null,
     speed: stored.results.speed?.payload ?? null,
     pelican: stored.results.pelican?.payload ?? null,
@@ -358,6 +377,19 @@ export function createController(options = {}) {
   }
 
   /**
+   * Resolve the reasoning selection for one route against the loaded catalog.
+   * @param route - `{ provider, model }` or null.
+   * @param current - currently selected effort id.
+   * @returns a supported effort id, or null for a non-reasoning model.
+   */
+  function reasoningForRoute(catalog, route, current) {
+    if (route === null) return null
+    const provider = catalogProviders(catalog).find((entry) => entry.id === route.provider)
+    const model = providerModels(provider).find((entry) => entry.id === route.model)
+    return pickReasoning(model, current)
+  }
+
+  /**
    * Fetch the provider/model catalog once.
    * @param force - ignore the cached catalog.
    * @returns the catalog, or null after a failure.
@@ -382,6 +414,7 @@ export function createController(options = {}) {
           provider: resolved.provider,
           route: resolved.route,
           modelByProvider: resolved.modelByProvider,
+          reasoning: reasoningForRoute(catalog, resolved.route, state.reasoning),
           catalogLoading: false,
           catalogError: null,
           ...(changed ? { progress: null, error: null } : {}),
@@ -441,10 +474,12 @@ export function createController(options = {}) {
     if (model === null) delete nextMap[providerId]
     else nextMap[providerId] = model
     const route = model === null ? null : { provider: providerId, model }
+    const selectedModel = models.find((entry) => entry.id === model)
     setState({
       provider: providerId,
       route,
       modelByProvider: nextMap,
+      reasoning: pickReasoning(selectedModel, state.reasoning),
       progress: null,
       error: null,
     })
@@ -459,13 +494,16 @@ export function createController(options = {}) {
     if (state.provider === null || typeof modelId !== 'string' || modelId.length === 0) return
     const provider = catalogProviders(state.catalog).find((entry) => entry.id === state.provider)
     if (provider === undefined) return
-    if (!providerModels(provider).some((model) => model.id === modelId)) return
+    const models = providerModels(provider)
+    const selectedModel = models.find((model) => model.id === modelId)
+    if (selectedModel === undefined) return
     const route = { provider: state.provider, model: modelId }
     const changed = !sameRoute(state.route, route)
     const nextMap = { ...state.modelByProvider, [state.provider]: modelId }
+    const reasoning = pickReasoning(selectedModel, state.reasoning)
     setState(changed
-      ? { route, modelByProvider: nextMap, progress: null, error: null }
-      : { route, modelByProvider: nextMap })
+      ? { route, modelByProvider: nextMap, reasoning, progress: null, error: null }
+      : { route, modelByProvider: nextMap, reasoning })
     persistSelection(storage, state.provider, modelId, nextMap)
   }
 
@@ -480,10 +518,13 @@ export function createController(options = {}) {
     const route = { provider, model }
     const changed = state.provider !== provider || !sameRoute(state.route, route)
     const nextMap = { ...state.modelByProvider, [provider]: model }
+    const providerEntry = catalogProviders(state.catalog).find((entry) => entry.id === provider)
+    const modelEntry = providerModels(providerEntry).find((entry) => entry.id === model)
     setState({
       provider,
       route,
       modelByProvider: nextMap,
+      reasoning: pickReasoning(modelEntry, state.reasoning),
       ...(changed ? { progress: null, error: null } : {}),
     })
     persistSelection(storage, provider, model, nextMap)
@@ -499,7 +540,7 @@ export function createController(options = {}) {
     if (limits === undefined) return
     const next = { ...state.cacheOptions, [key]: clampOption(value, limits, state.cacheOptions[key]) }
     setState({ cacheOptions: next, progress: null, error: null })
-    persistOptions(storage, next, state.speedOptions, state.pelicanOptions)
+    persistOptions(storage, next, state.speedOptions, state.pelicanOptions, state.reasoning)
   }
 
   /**
@@ -512,7 +553,7 @@ export function createController(options = {}) {
     if (limits === undefined) return
     const next = { ...state.speedOptions, [key]: clampOption(value, limits, state.speedOptions[key]) }
     setState({ speedOptions: next, progress: null, error: null })
-    persistOptions(storage, state.cacheOptions, next, state.pelicanOptions)
+    persistOptions(storage, state.cacheOptions, next, state.pelicanOptions, state.reasoning)
   }
 
   /**
@@ -525,7 +566,18 @@ export function createController(options = {}) {
     if (limits === undefined) return
     const next = { ...state.pelicanOptions, [key]: clampOption(value, limits, state.pelicanOptions[key]) }
     setState({ pelicanOptions: next, progress: null, error: null })
-    persistOptions(storage, state.cacheOptions, state.speedOptions, next)
+    persistOptions(storage, state.cacheOptions, state.speedOptions, next, state.reasoning)
+  }
+
+  /**
+   * Select the shared reasoning effort for all three tests.
+   * @param value - model-declared effort id.
+   */
+  function setReasoning(value) {
+    if (typeof value !== 'string' || value.length === 0) return
+    if (state.reasoning === value) return
+    setState({ reasoning: value, progress: null, error: null })
+    persistOptions(storage, state.cacheOptions, state.speedOptions, state.pelicanOptions, value)
   }
 
   /**
@@ -547,6 +599,7 @@ export function createController(options = {}) {
       route: route === null ? null : { ...route },
       channelName: provider?.name ?? route?.provider ?? '',
       options,
+      reasoning: state.reasoning,
       total,
       attempts: [],
       activeIndex: null,
@@ -679,6 +732,7 @@ export function createController(options = {}) {
       cache: state.cacheOptions,
       speed: state.speedOptions,
       pelican: state.pelicanOptions,
+      ...(state.reasoning === null ? {} : { reasoning: state.reasoning }),
     }
     const controller = new AbortController()
     currentAbort = controller
@@ -975,6 +1029,7 @@ export function createController(options = {}) {
     setCacheOption,
     setSpeedOption,
     setPelicanOption,
+    setReasoning,
     run,
     runAll,
     cancel,
@@ -999,6 +1054,35 @@ export function catalogProviders(catalog) {
 export function providerModels(provider) {
   const models = Array.isArray(provider?.models) ? provider.models : []
   return models.filter((model) => model !== null && typeof model === 'object')
+}
+
+/**
+ * List one model's advertised reasoning efforts.
+ * @param model - catalog model entry.
+ * @returns effort descriptors with a usable id.
+ */
+export function modelReasoning(model) {
+  const efforts = Array.isArray(model?.reasoning?.efforts) ? model.reasoning.efforts : []
+  return efforts.filter((effort) => effort !== null
+    && typeof effort === 'object'
+    && typeof effort.id === 'string'
+    && effort.id.length > 0)
+}
+
+/**
+ * Pick a selectable effort for one model, keeping a saved value when possible.
+ * @param model - catalog model entry.
+ * @param current - saved effort id, or null.
+ * @returns an effort id, or null for a model without reasoning.
+ */
+export function pickReasoning(model, current) {
+  const efforts = modelReasoning(model)
+  const ids = efforts.map((effort) => effort.id)
+  if (ids.length === 0) return null
+  if (typeof current === 'string' && ids.includes(current)) return current
+  if (ids.includes('low')) return 'low'
+  if (ids.includes('off')) return 'off'
+  return ids[0]
 }
 
 /**
@@ -1104,6 +1188,7 @@ function readStored(storage) {
   let cache = { ...CACHE_DEFAULTS }
   let speed = { ...SPEED_DEFAULTS }
   let pelican = { ...PELICAN_DEFAULTS }
+  let reasoning = REASONING_DEFAULT
   try {
     const raw = storage?.getItem?.(ROUTE_KEY)
     if (typeof raw === 'string') {
@@ -1142,11 +1227,16 @@ function readStored(storage) {
       } catch {
         pelican = { ...PELICAN_DEFAULTS }
       }
+      try {
+        reasoning = normalizeReasoning(parsed?.reasoning) ?? REASONING_DEFAULT
+      } catch {
+        reasoning = REASONING_DEFAULT
+      }
     }
   } catch {
     // Ignore damaged saved options.
   }
-  return { selection, modelByProvider, cache, speed, pelican, results: readResults(storage) }
+  return { selection, modelByProvider, cache, speed, pelican, reasoning, results: readResults(storage) }
 }
 
 /**
@@ -1218,9 +1308,9 @@ function persistSelection(storage, provider, model, modelByProvider) {
  * @param cache - cache options.
  * @param speed - speed options.
  */
-function persistOptions(storage, cache, speed, pelican) {
+function persistOptions(storage, cache, speed, pelican, reasoning) {
   try {
-    storage?.setItem?.(OPTIONS_KEY, JSON.stringify({ cache, speed, pelican }))
+    storage?.setItem?.(OPTIONS_KEY, JSON.stringify({ cache, speed, pelican, reasoning }))
   } catch {
     // A disabled storage must not fail a test.
   }
@@ -1335,6 +1425,8 @@ function PanelPage({ controller, translate }) {
   const providers = catalogProviders(state.catalog)
   const selectedProvider = providers.find((provider) => provider.id === state.provider) ?? null
   const models = providerModels(selectedProvider)
+  const selectedModel = models.find((model) => model.id === state.route?.model) ?? null
+  const efforts = modelReasoning(selectedModel)
   const disabled = state.running || state.route === null || state.catalog === null
   const status = state.running
     ? state.activeKind === 'cache'
@@ -1393,6 +1485,21 @@ function PanelPage({ controller, translate }) {
                       : []),
                     models.map((model) => h('option', { key: model.id, value: model.id }, model.name ?? model.id)),
                   ),
+              ),
+            ),
+            h('label', { className: 'dsh-ct-picker' },
+              h('span', { className: 'dsh-ct-route-label' }, t('label.reasoning')),
+              h('select', {
+                className: 'dsh-ct-select',
+                value: state.reasoning ?? '',
+                disabled: state.running || efforts.length === 0,
+                onChange: (event) => {
+                  if (event.target.value !== '') controller.setReasoning(event.target.value)
+                },
+              },
+              efforts.length === 0
+                ? h('option', { value: '' }, t('label.noReasoning'))
+                : efforts.map((effort) => h('option', { key: effort.id, value: effort.id }, reasoningLabel(effort, t))),
               ),
             ),
           ),
@@ -1667,6 +1774,19 @@ function providerOptionLabel(provider, t) {
 }
 
 /**
+ * Render one reasoning-effort option.
+ * @param effort - catalog effort descriptor.
+ * @param t - translator.
+ * @returns the display label.
+ */
+function reasoningLabel(effort, t) {
+  const key = `reasoning.${effort.id}`
+  const translated = t(key)
+  if (translated !== key) return translated
+  return typeof effort.name === 'string' && effort.name.length > 0 ? effort.name : effort.id
+}
+
+/**
  * Build the advanced controls.
  * @param state - controller snapshot.
  * @param controller - page controller.
@@ -1683,7 +1803,6 @@ function advancedSettings(state, controller, t) {
         numberField(t('form.tokens'), state.speedOptions.tokens, SPEED_LIMITS.tokens, (value) => controller.setSpeedOption('tokens', value)),
         numberField(t('form.speedRounds'), state.speedOptions.rounds, SPEED_LIMITS.rounds, (value) => controller.setSpeedOption('rounds', value)),
         numberField(t('form.gap'), state.speedOptions.gap, SPEED_LIMITS.gap, (value) => controller.setSpeedOption('gap', value)),
-        numberField(t('form.pelicanTokens'), state.pelicanOptions.tokens, PELICAN_LIMITS.tokens, (value) => controller.setPelicanOption('tokens', value)),
         numberField(t('form.timeout'), state.cacheOptions.timeout, CACHE_LIMITS.timeout, (value) => {
           controller.setCacheOption('timeout', value)
           controller.setSpeedOption('timeout', value)
@@ -1790,6 +1909,9 @@ function PelicanCard({ result, checkedAt, sourceRoute, currentRoute, t }) {
                   h('span', null, `TTFT ${formatLatency(attempt?.ttftMs)}`),
                   h('span', null, formatThroughput(attempt?.tps)),
                   h('span', null, t('table.total') + ' ' + formatDuration(attempt?.durationMs)),
+                  attempt?.summary?.output === undefined
+                    ? null
+                    : h('span', null, `输出 ${formatTokens(attempt.summary.output)} tok${attempt.summary.reasoning === undefined ? '' : `（推理 ${formatTokens(attempt.summary.reasoning)}）`}`),
                   h('span', null, `${t('table.svgLength')} ${result.svgLength ?? 0}`),
                 )
               : h('span', { className: 'dsh-ct-error' }, attempt.error.message),

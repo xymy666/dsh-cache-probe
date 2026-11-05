@@ -34,15 +34,29 @@ function makeLlm(options = {}) {
         ? [{ id: 'm1', name: 'M1' }]
         : [{ id: 'm2', name: 'M2' }]
     },
-    async prepareCall(config) {
+    async resolveModel(provider, model) {
       return {
-        config: { ...config },
+        provider,
+        id: model,
+        name: model,
+        reasoning: {
+          efforts: [{ id: 'off', name: 'Off' }, { id: 'low', name: 'Low' }],
+          defaultEffort: 'low',
+        },
+      }
+    },
+    async prepareCall(config, _signal, configure) {
+      const proposed = typeof configure === 'function'
+        ? { ...config, ...configure({}, { reasoning: { efforts: [{ id: 'off' }, { id: 'low' }] } }) }
+        : config
+      return {
+        config: proposed,
         stream: async function* stream() {
-          calls.push(config)
+          calls.push(proposed)
           if (options.gate !== undefined) await options.gate
           yield { type: 'text-delta', text: '1\n' }
           await new Promise((resolve) => setTimeout(resolve, 5))
-          const output = config.maxTokens ?? 32
+          const output = proposed.maxTokens ?? 32
           yield { type: 'usage', usage: { inputTokens: 20, cacheReadTokens: 10, outputTokens: output, totalTokens: 30 + output } }
           yield { type: 'finish', reason: { kind: 'max-tokens' } }
         },
@@ -159,6 +173,7 @@ test('lists active providers, models, and a default route', async () => {
   const body = response.json()
   assert.equal(body.ok, true)
   assert.deepEqual(body.providers.map((entry) => entry.id), ['a6', 'hs'])
+  assert.deepEqual(body.providers[0].models[0].reasoning.efforts.map((effort) => effort.id), ['off', 'low'])
   assert.deepEqual(body.defaultRoute, { provider: 'a6', model: 'm1' })
 })
 
@@ -178,7 +193,8 @@ test('uses the session model selection for the default route', async () => {
 })
 
 test('runs a cache test and returns structured attempts plus report', async () => {
-  const { routes } = setup()
+  const llm = makeLlm()
+  const { routes } = setup({ llm })
   const response = await invoke(routes[1], makeRequest({
     body: {
       kind: 'cache',
@@ -193,8 +209,25 @@ test('runs a cache test and returns structured attempts plus report', async () =
   assert.equal(body.kind, 'cache')
   assert.equal(body.channelName, 'a6中转')
   assert.equal(body.cache.attempts.length, 2)
+  assert.equal(llm.calls[0].reasoningEffort, 'low')
   assert.match(body.cache.report, /缓存探测/u)
   assert.match(body.cache.summary.headline, /复测命中/u)
+})
+
+test('passes the selected reasoning effort to the request', async () => {
+  const llm = makeLlm()
+  const { routes } = setup({ llm })
+  const response = await invoke(routes[1], makeRequest({
+    body: {
+      kind: 'speed',
+      provider: 'a6',
+      model: 'm1',
+      reasoning: 'off',
+      speed: { tokens: 32, rounds: 1, gap: 0, timeout: 10 },
+    },
+  }))
+  assert.equal(response.statusCode, 200)
+  assert.equal(llm.calls[0].reasoningEffort, 'off')
 })
 
 test('runs a speed test and returns structured attempts plus report', async () => {
@@ -271,7 +304,7 @@ test('runs a pelican test and returns the extracted SVG', async () => {
       kind: 'pelican',
       provider: 'a6',
       model: 'm1',
-      pelican: { tokens: 512, timeout: 10 },
+      pelican: { timeout: 10 },
     },
   }))
   assert.equal(response.statusCode, 200)
@@ -299,7 +332,7 @@ test('streams pelican progress with a single round', async () => {
       kind: 'pelican',
       provider: 'a6',
       model: 'm1',
-      pelican: { tokens: 512, timeout: 10 },
+      pelican: { timeout: 10 },
     },
   }))
   const events = response.body.trim().split('\n').map((line) => JSON.parse(line))

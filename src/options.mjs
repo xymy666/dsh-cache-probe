@@ -41,15 +41,16 @@ export const SPEED_LIMITS = Object.freeze({
   timeout: [10, 300],
 })
 
-/** Pelican-test defaults. */
+/** Default reasoning effort for every probe request. */
+export const REASONING_DEFAULT = 'low'
+
+/** Pelican-test defaults. It has no output cap: the model ends on its own. */
 export const PELICAN_DEFAULTS = Object.freeze({
-  tokens: 2_048,
   timeout: 120,
 })
 
 /** Pelican-test inclusive ranges. */
 export const PELICAN_LIMITS = Object.freeze({
-  tokens: [256, 4_096],
   timeout: [10, 300],
 })
 
@@ -93,6 +94,25 @@ export function normalizeSpeedOptions(input) {
  */
 export function normalizePelicanOptions(input) {
   return normalize(input, PELICAN_DEFAULTS, PELICAN_LIMITS, 'pelican')
+}
+
+/**
+ * Normalize the shared reasoning-effort selection.
+ *
+ * The value is a model-declared effort id (`off`, `low`, `high`, `max`, ...).
+ * An absent value means "no explicit override"; the LLM layer then picks its
+ * own lowest advertised effort (or none for a non-reasoning model). Whether the
+ * selected model actually offers an explicit id is checked before any provider
+ * I/O, so this boundary only rejects non-strings.
+ * @param input - untrusted value from the page.
+ * @returns a non-empty effort id, or undefined when not supplied.
+ * @throws {OptionError} for a non-string or empty value.
+ */
+export function normalizeReasoning(input) {
+  if (input === undefined || input === null || input === '') return undefined
+  if (typeof input !== 'string') throw new OptionError('reasoning 必须是字符串')
+  if (input.trim().length === 0) throw new OptionError('reasoning 不能为空')
+  return input.trim()
 }
 
 /**

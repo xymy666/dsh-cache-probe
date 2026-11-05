@@ -77,6 +77,7 @@ export async function runSpeedTest(input) {
     llm,
     route,
     options,
+    reasoning,
     signal,
     sleep = defaultSleep,
     now = Date.now,
@@ -99,6 +100,7 @@ export async function runSpeedTest(input) {
         route,
         prompt,
         maxTokens: options.tokens,
+        reasoningEffort: reasoning,
         signal,
         timeoutMs: options.timeout * 1_000,
         now,
@@ -163,11 +165,12 @@ export function summarizeSpeedResult(attempts) {
  * @returns a compact multiline report whose first line is the summary.
  */
 export function formatSpeedReport(input) {
-  const { route, channelName, options, attempts } = input
+  const { route, channelName, options, attempts, reasoning } = input
   const summary = summarizeSpeedResult(attempts)
   const { medianTtft, medianTps, ttftRange, tpsRange } = summary
 
   const lines = [`测速 ${channelName} / ${route.model}：${summary.headline}`]
+  lines.push(`思考等级：${reasoning ?? '默认'}`)
   const firstUsage = attempts.find((attempt) => attempt.summary !== undefined)?.summary
   lines.push(
     `prompt ${firstUsage === undefined ? '—' : formatTokens(firstUsage.prompt)} tok · 目标 ${options.tokens} tok · ${options.rounds} 轮`,
@@ -184,7 +187,9 @@ export function formatSpeedReport(input) {
       continue
     }
     const pieces = [
-      attempt.summary === undefined ? '— tok' : `${formatTokens(attempt.summary.output)} tok`,
+      attempt.summary === undefined
+        ? '— tok'
+        : `${formatTokens(attempt.summary.output)} tok${attempt.summary.reasoning === undefined ? '' : `（推理 ${formatTokens(attempt.summary.reasoning)}）`}`,
       `TTFT ${formatLatency(attempt.ttftMs)}`,
       formatThroughput(attempt.tps),
       `总 ${formatDuration(attempt.durationMs)}`,

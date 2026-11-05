@@ -11,7 +11,7 @@
  */
 
 import { callOnce, normalizeProbeError } from './probe.mjs'
-import { formatDuration, formatLatency, formatThroughput, summarizeUsage } from './stats.mjs'
+import { formatDuration, formatLatency, formatThroughput, formatTokens, summarizeUsage } from './stats.mjs'
 
 /**
  * SVG event-handler attribute scanner. A plain `/on[a-z]+=/` would also eat
@@ -27,10 +27,6 @@ export const PELICAN_PROMPT = [
   'Use viewBox="0 0 640 420", a plain background, and simple flat shapes.',
   'The pelican must sit on the bicycle with its wings on the handlebars and its feet on the pedals.',
 ].join(' ')
-
-/** Output cap bounds; the page supplies a smaller default. */
-export const PELICAN_MIN_TOKENS = 256
-export const PELICAN_MAX_TOKENS = 4_096
 
 /**
  * Build the prompt for one run.
@@ -48,13 +44,13 @@ export function buildPelicanPrompt(nonce) {
  * @throws {Error} when the request fails or is aborted.
  */
 export async function runPelicanTest(input) {
-  const { llm, route, options, signal, now = Date.now } = input
+  const { llm, route, options, reasoning, signal, now = Date.now } = input
   const prompt = buildPelicanPrompt(globalThis.crypto?.randomUUID?.() ?? String(now()))
   const attempt = await callOnce({
     llm,
     route,
     prompt,
-    maxTokens: options.tokens,
+    reasoningEffort: reasoning,
     signal,
     timeoutMs: options.timeout * 1_000,
     now,
@@ -100,6 +96,11 @@ export function extractSvg(text) {
 
   const inline = /<svg[\s>][\s\S]*?<\/svg\s*>/iu.exec(text)
   if (inline !== null) return finalizeSvg(inline[0], 'inline')
+
+  // A timed-out or still-streaming reply may stop before </svg>. Keep the
+  // opening element to the end of the text and close it for the preview.
+  const open = /<svg[\s>][\s\S]*$/iu.exec(text)
+  if (open !== null) return finalizeSvg(closeSvg(open[0].trim()), 'inline')
 
   return { svg: null, source: 'none', length: 0 }
 }
@@ -173,28 +174,53 @@ function stripRootSize(attributes) {
  * @returns `{ summary, report }`.
  */
 export function summarizePelicanResult(input) {
-  const { route, channelName, options, attempt, extracted } = input
+  const { route, channelName, options, attempt, extracted, reasoning } = input
   const failed = attempt?.error !== undefined
+  const output = attempt?.summary?.output
+  const reasoningTokens = attempt?.summary?.reasoning
+  const contentTokens = output !== undefined && reasoningTokens !== undefined
+    ? Math.max(0, output - reasoningTokens)
+    : undefined
+  const truncatedWhileThinking = !failed
+    && extracted.svg === null
+    && attempt.textChars === 0
+    && attempt.finish?.kind === 'max-tokens'
+  const noVisibleText = !failed && extracted.svg === null && attempt.textChars === 0
+
   const headline = failed
     ? '无可用响应'
-    : extracted.svg === null
-      ? '未提取到 SVG'
-      : `已生成 SVG · ${formatLatency(attempt.ttftMs)}`
+    : extracted.svg !== null
+      ? `已生成 SVG · ${formatLatency(attempt.ttftMs)}`
+      : truncatedWhileThinking
+        ? '思考未结束（被上限截断）'
+        : noVisibleText
+          ? '没有输出正文'
+          : '未提取到 SVG'
+
   const verdict = failed
     ? `请求失败：${attempt.error.message}（${attempt.error.code}）`
-    : extracted.svg === null
-      ? '模型回复里没有找到 SVG，下方保留了原始文本。'
-      : `首 token ${formatLatency(attempt.ttftMs)}，输出 ${formatThroughput(attempt.tps)}，SVG ${extracted.length} 字符。`
+    : extracted.svg !== null
+      ? `首 token ${formatLatency(attempt.ttftMs)}，输出 ${formatThroughput(attempt.tps)}，SVG ${extracted.length} 字符。`
+      : truncatedWhileThinking
+        ? '模型在思考阶段用完了输出上限，没有产生正文；不是 SVG 提取失败。'
+        : noVisibleText
+          ? '模型结束了但没有输出正文，无法提取 SVG。'
+          : '模型有正文，但没有找到可用的 SVG。'
 
+  const maxLabel = Number.isSafeInteger(attempt?.maxTokens) && attempt.maxTokens > 0
+    ? `${formatTokens(attempt.maxTokens)} tok（模型配置上限）`
+    : '未设置'
   const lines = [
     `鹈鹕测试 ${channelName} / ${route.model}：${headline}`,
-    `轮次：1，目标输出 ${options.tokens} tokens，超时 ${options.timeout}s`,
+    `轮次：1，思考等级：${reasoning ?? '默认'}，输出上限：${maxLabel}，超时 ${options.timeout}s`,
   ]
   if (failed) {
     lines.push(`① 失败：${attempt.error.message}（${attempt.error.code}）`)
   } else {
-    const usage = attempt.summary
-    lines.push(`① TTFT ${formatLatency(attempt.ttftMs)} · 输出 ${usage === undefined ? '—' : usage.output} tok · ${formatThroughput(attempt.tps)} · 总 ${formatDuration(attempt.durationMs)}`)
+    const outputLabel = output === undefined
+      ? '— tok'
+      : `${formatTokens(output)} tok${reasoningTokens === undefined ? '' : `（推理 ${formatTokens(reasoningTokens)} / 正文 ${formatTokens(contentTokens)}）`}`
+    lines.push(`① TTFT ${formatLatency(attempt.ttftMs)} · 输出 ${outputLabel} · ${formatThroughput(attempt.tps)} · 总 ${formatDuration(attempt.durationMs)}`)
     lines.push(`SVG：${extracted.svg === null ? '未提取到' : `${extracted.length} 字符（${extracted.source}）`}`)
     lines.push(`结论：${verdict}`)
   }

@@ -17,6 +17,7 @@ import {
   OptionError,
   normalizeCacheOptions,
   normalizePelicanOptions,
+  normalizeReasoning,
   normalizeSpeedOptions,
 } from './options.mjs'
 import {
@@ -122,10 +123,12 @@ async function handleRun(ctx, req, res, gate) {
   let cacheOptions
   let speedOptions
   let pelicanOptions
+  let reasoning
   try {
     cacheOptions = normalizeCacheOptions(body.cache)
     speedOptions = normalizeSpeedOptions(body.speed)
     pelicanOptions = normalizePelicanOptions(body.pelican)
+    reasoning = normalizeReasoning(body.reasoning)
   } catch (error) {
     writeError(res, error)
     return
@@ -145,6 +148,7 @@ async function handleRun(ctx, req, res, gate) {
     cacheOptions,
     speedOptions,
     pelicanOptions,
+    reasoning,
     startedAt: Date.now(),
   }
   if (req.headers['x-dsh-cache-probe-stream'] === '1') {
@@ -169,7 +173,7 @@ async function handleRun(ctx, req, res, gate) {
  * @returns the response payload.
  */
 async function executeRun(input, hooks = {}) {
-  const { ctx, kind, provider, model, sessionId, cacheOptions, speedOptions, pelicanOptions, startedAt } = input
+  const { ctx, kind, provider, model, sessionId, cacheOptions, speedOptions, pelicanOptions, reasoning, startedAt } = input
   const route = { provider, model }
   const channelName = resolveChannelName(ctx.llm, provider)
 
@@ -186,6 +190,7 @@ async function executeRun(input, hooks = {}) {
       llm: ctx.llm,
       route,
       options: cacheOptions,
+      reasoning,
       signal: hooks.signal,
       sleep: hooks.sleep,
       onAttemptStart: hooks.onAttemptStart,
@@ -199,6 +204,7 @@ async function executeRun(input, hooks = {}) {
       attempts: result.attempts,
       payloadChars: result.payloadChars,
       sessionChannels,
+      reasoning,
     })
     return {
       ok: true,
@@ -224,6 +230,7 @@ async function executeRun(input, hooks = {}) {
         llm: ctx.llm,
         route,
         options: pelicanOptions,
+        reasoning,
         signal: hooks.signal,
       }) }
     } catch (error) {
@@ -240,6 +247,7 @@ async function executeRun(input, hooks = {}) {
       options: pelicanOptions,
       attempt,
       extracted,
+      reasoning,
     })
     return {
       ok: true,
@@ -263,6 +271,7 @@ async function executeRun(input, hooks = {}) {
     llm: ctx.llm,
     route,
     options: speedOptions,
+    reasoning,
     signal: hooks.signal,
     sleep: hooks.sleep,
     onAttemptStart: hooks.onAttemptStart,
@@ -274,6 +283,7 @@ async function executeRun(input, hooks = {}) {
     channelName,
     options: speedOptions,
     attempts: result.attempts,
+    reasoning,
   })
   return {
     ok: true,
@@ -297,7 +307,7 @@ async function executeRun(input, hooks = {}) {
  * @param gate - single-flight end callback.
  */
 async function handleRunStream(input, _req, res, gate) {
-  const { ctx, kind, provider, model, cacheOptions, speedOptions, pelicanOptions, startedAt } = input
+  const { ctx, kind, provider, model, cacheOptions, speedOptions, pelicanOptions, reasoning, startedAt } = input
   const controller = new AbortController()
   let ended = false
   let heartbeat
@@ -339,6 +349,7 @@ async function handleRunStream(input, _req, res, gate) {
       kind,
       route: { provider, model },
       channelName: resolveChannelName(ctx.llm, provider),
+      reasoning,
       options: kind === 'cache' ? cacheOptions : kind === 'speed' ? speedOptions : pelicanOptions,
       total,
     })
@@ -402,10 +413,32 @@ async function buildCatalog(ctx) {
   for (const entry of ctx.llm.listProviders()) {
     try {
       const models = await ctx.llm.listModels(entry.id)
+      const described = []
+      for (const model of models) {
+        let reasoning
+        try {
+          if (typeof ctx.llm.resolveModel === 'function') {
+            const info = await ctx.llm.resolveModel(entry.id, model.id)
+            if (info?.reasoning !== undefined) {
+              reasoning = {
+                efforts: info.reasoning.efforts.map((effort) => ({ id: effort.id, name: effort.name })),
+                ...(info.reasoning.defaultEffort === undefined ? {} : { defaultEffort: info.reasoning.defaultEffort }),
+              }
+            }
+          }
+        } catch {
+          // A model that cannot report its capabilities still lists normally.
+        }
+        described.push({
+          id: model.id,
+          name: model.name,
+          ...(reasoning === undefined ? {} : { reasoning }),
+        })
+      }
       providers.push({
         id: entry.id,
         name: entry.name,
-        models: models.map((model) => ({ id: model.id, name: model.name })),
+        models: described,
       })
     } catch (error) {
       providers.push({

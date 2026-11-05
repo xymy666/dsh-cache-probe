@@ -5,11 +5,13 @@ import {
   CACHE_DEFAULTS,
   CACHE_LIMITS,
   PELICAN_DEFAULTS,
+  REASONING_DEFAULT,
   SPEED_DEFAULTS,
   OptionError,
   clampOption,
   normalizeCacheOptions,
   normalizePelicanOptions,
+  normalizeReasoning,
   normalizeSpeedOptions,
 } from '../src/options.mjs'
 
@@ -35,9 +37,22 @@ test('rejects non-objects, non-integers, and out-of-range values', () => {
   assert.throws(() => normalizeCacheOptions({ size: 1_999 }), /2000–200000/u)
   assert.throws(() => normalizeSpeedOptions({ tokens: 2_049 }), /32–2048/u)
   assert.throws(() => normalizeSpeedOptions({ gap: -1 }), /0–30/u)
-  assert.throws(() => normalizePelicanOptions({ tokens: 255 }), /256–4096/u)
   assert.throws(() => normalizePelicanOptions({ timeout: 301 }), /10–300/u)
   assert.throws(() => normalizePelicanOptions('x'), OptionError)
+})
+
+test('normalizes the shared reasoning level', () => {
+  assert.equal(normalizeReasoning(undefined), undefined)
+  assert.equal(normalizeReasoning(''), undefined)
+  assert.equal(normalizeReasoning('off'), 'off')
+  assert.equal(normalizeReasoning('max'), 'max')
+  assert.throws(() => normalizeReasoning(1), /必须是字符串/u)
+  assert.throws(() => normalizeReasoning('   '), /不能为空/u)
+})
+
+test('ignores the removed pelican token cap', () => {
+  const options = normalizePelicanOptions({ tokens: 2_048, timeout: 120 })
+  assert.deepEqual(options, { timeout: 120 })
 })
 
 test('cache and speed rounds have no upper bound', () => {

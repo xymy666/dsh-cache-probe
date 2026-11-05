@@ -99,6 +99,7 @@ export async function runProbe(input) {
     llm,
     route,
     options,
+    reasoning,
     signal,
     sleep = defaultSleep,
     now = Date.now,
@@ -121,6 +122,7 @@ export async function runProbe(input) {
         route,
         prompt: payload,
         maxTokens: MAX_OUTPUT_TOKENS,
+        reasoningEffort: reasoning,
         signal,
         timeoutMs: options.timeout * 1_000,
         now,
@@ -152,7 +154,7 @@ export async function runProbe(input) {
  * @param input - LLM service, route, payload, cancellation, timeout, and clock.
  * @returns usage, finish reason, and timings for one attempt.
  */
-export async function callOnce({ llm, route, prompt, maxTokens, signal, timeoutMs, now }) {
+export async function callOnce({ llm, route, prompt, maxTokens, reasoningEffort, signal, timeoutMs, now }) {
   const controller = new AbortController()
   let timedOut = false
   const onOuterAbort = () => controller.abort()
@@ -164,10 +166,15 @@ export async function callOnce({ llm, route, prompt, maxTokens, signal, timeoutM
   }, timeoutMs)
 
   try {
+    const config = { provider: route.provider, model: route.model }
+    if (Number.isSafeInteger(maxTokens) && maxTokens > 0) config.maxTokens = maxTokens
+    const configure = typeof reasoningEffort === 'string' && reasoningEffort.length > 0
+      ? (controls) => ({ ...controls, reasoningEffort })
+      : lowestReasoning
     const prepared = await llm.prepareCall(
-      { provider: route.provider, model: route.model, maxTokens },
+      config,
       controller.signal,
-      lowestReasoning,
+      configure,
     )
     const messages = [{
       role: 'user',
@@ -212,6 +219,7 @@ export async function callOnce({ llm, route, prompt, maxTokens, signal, timeoutM
     return {
       usage,
       finish: finish ?? { kind: 'unknown' },
+      maxTokens: prepared.config.maxTokens,
       ttftMs: firstTokenAt === undefined ? undefined : Math.max(0, firstTokenAt - startedAt),
       decodeMs: firstTokenAt === undefined ? undefined : Math.max(0, endedAt - firstTokenAt),
       durationMs: Math.max(0, endedAt - startedAt),
@@ -254,16 +262,18 @@ function isTokenChunk(chunk) {
 }
 
 /**
- * Pick the least expensive reasoning effort the model advertises.
+ * Pick the lowest thinking level the model advertises, skipping `off`.
  *
- * It is a pure `ConfigureCall`; a model without reasoning metadata keeps the
+ * An unspecified request keeps thinking on (the page's default `low`); only an
+ * explicit `off` disables it. A model without reasoning metadata keeps the
  * adapter defaults untouched.
  * @param controls - detached call controls.
  * @param model - resolved model metadata.
- * @returns controls with the first advertised effort, when one exists.
+ * @returns controls with the first non-off effort, when one exists.
  */
 function lowestReasoning(controls, model) {
-  const effort = model?.reasoning?.efforts?.[0]?.id
+  const efforts = Array.isArray(model?.reasoning?.efforts) ? model.reasoning.efforts : []
+  const effort = efforts.find((entry) => entry?.id !== 'off')?.id ?? efforts[0]?.id
   return typeof effort === 'string' && effort.length > 0
     ? { ...controls, reasoningEffort: effort }
     : controls
@@ -358,9 +368,11 @@ export function formatProbeReport(input) {
     attempts,
     payloadChars,
     sessionChannels = [],
+    reasoning,
   } = input
   const resultSummary = summarizeProbeResult(attempts)
   const lines = [`缓存探测 ${channelName} / ${route.model}：${resultSummary.headline}`]
+  lines.push(`思考等级：${reasoning ?? '默认'}`)
 
   const rows = sessionChannels.slice(0, 5)
   if (rows.length === 0) {

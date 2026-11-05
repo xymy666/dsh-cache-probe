@@ -36,6 +36,9 @@ export function summarizeUsage(usage) {
   if (!isCount(cacheRead) || !isCount(cacheWrite)) return undefined
   const prompt = uncached + cacheRead + cacheWrite
   if (!Number.isSafeInteger(prompt)) return undefined
+  const reasoning = isCount(usage.reasoningTokens) && usage.reasoningTokens <= output
+    ? usage.reasoningTokens
+    : undefined
   return {
     uncached,
     cacheRead,
@@ -43,6 +46,7 @@ export function summarizeUsage(usage) {
     output,
     prompt,
     hitRate: prompt === 0 ? null : cacheRead / prompt,
+    ...(reasoning === undefined ? {} : { reasoning }),
   }
 }
 

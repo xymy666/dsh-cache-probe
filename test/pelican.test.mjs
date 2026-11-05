@@ -20,11 +20,14 @@ function makeLlm(text, options = {}) {
   const calls = []
   return {
     calls,
-    async prepareCall(config) {
+    async prepareCall(config, _signal, configure) {
+      const proposed = typeof configure === 'function'
+        ? { ...config, ...configure({}, { reasoning: { efforts: [{ id: 'low' }] } }) }
+        : config
       return {
-        config: { ...config },
+        config: proposed,
         stream: async function* stream(request) {
-          calls.push({ config, request })
+          calls.push({ config: proposed, request })
           if (options.failPrepare !== undefined) throw options.failPrepare
           yield { type: 'text-delta', text }
           if (options.withUsage !== false) {
@@ -38,7 +41,7 @@ function makeLlm(text, options = {}) {
 }
 
 const ROUTE = { provider: 'a6', model: 'deepseek-v4.1-flash-1017' }
-const OPTIONS = { tokens: 512, timeout: 10 }
+const OPTIONS = { timeout: 10 }
 
 test('builds a unique prompt around the shared instruction', () => {
   const first = buildPelicanPrompt('aaa')
@@ -62,6 +65,13 @@ test('extracts a fenced SVG and closes a truncated document', () => {
 
 test('falls back to an inline SVG document', () => {
   const result = extractSvg('Sure. <svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg> Done.')
+  assert.equal(result.source, 'inline')
+  assert.ok(result.svg.startsWith('<svg'))
+  assert.ok(result.svg.endsWith('</svg>'))
+})
+
+test('closes an inline SVG truncated before the closing tag', () => {
+  const result = extractSvg('<svg viewBox="0 0 10 10"><circle r="4"/>')
   assert.equal(result.source, 'inline')
   assert.ok(result.svg.startsWith('<svg'))
   assert.ok(result.svg.endsWith('</svg>'))
@@ -115,13 +125,15 @@ test('runs one request and reports timings and usage', async () => {
     llm,
     route: ROUTE,
     options: OPTIONS,
+    reasoning: 'low',
     now: () => {
       clock += 250
       return clock
     },
   })
   assert.equal(llm.calls.length, 1)
-  assert.equal(llm.calls[0].config.maxTokens, 512)
+  assert.equal(llm.calls[0].config.maxTokens, undefined)
+  assert.equal(llm.calls[0].config.reasoningEffort, 'low')
   assert.equal(llm.calls[0].request.messages[0].content[0].text.includes('pelican riding a bicycle'), true)
   assert.equal(attempt.summary.output, 120)
   assert.equal(typeof attempt.ttftMs, 'number')
@@ -137,26 +149,41 @@ test('normalizes failures to a stable code', () => {
 })
 
 test('summarizes both a generated SVG and a missing one', () => {
-  const attempt = { index: 0, ttftMs: 400, durationMs: 2_000, tps: 60, summary: { output: 120 } }
+  const attempt = { index: 0, ttftMs: 400, durationMs: 2_000, tps: 60, textChars: 400, finish: { kind: 'stop' }, maxTokens: 384_000, summary: { output: 120, reasoning: 80 } }
   const generated = summarizePelicanResult({
     route: ROUTE,
     channelName: 'a6中转',
     options: OPTIONS,
+    reasoning: 'low',
     attempt,
     extracted: { svg: '<svg></svg>', source: 'fence', length: 11 },
   })
   assert.match(generated.summary.headline, /已生成 SVG/u)
   assert.match(generated.report, /SVG：11 字符（fence）/u)
+  assert.match(generated.report, /推理 80 \/ 正文 40/u)
+  assert.match(generated.report, /思考等级：low/u)
 
   const missing = summarizePelicanResult({
     route: ROUTE,
     channelName: 'a6中转',
     options: OPTIONS,
+    reasoning: 'low',
     attempt,
     extracted: { svg: null, source: 'none', length: 0 },
   })
   assert.equal(missing.summary.headline, '未提取到 SVG')
   assert.match(missing.report, /SVG：未提取到/u)
+
+  const truncated = summarizePelicanResult({
+    route: ROUTE,
+    channelName: 'a6中转',
+    options: OPTIONS,
+    reasoning: 'low',
+    attempt: { ...attempt, textChars: 0, finish: { kind: 'max-tokens' }, summary: { output: 120, reasoning: 120 } },
+    extracted: { svg: null, source: 'none', length: 0 },
+  })
+  assert.equal(truncated.summary.headline, '思考未结束（被上限截断）')
+  assert.match(truncated.report, /不是 SVG 提取失败/u)
 
   const failed = summarizePelicanResult({
     route: ROUTE,

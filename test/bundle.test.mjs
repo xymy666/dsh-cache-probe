@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -10,7 +11,8 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)))
 
 test('client bundle registers one module and parses', async () => {
   const { text, version } = await bundleClient(root)
-  assert.equal(version, '0.4.5')
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+  assert.equal(version, pkg.version)
   assert.match(text, /window\.__ModuleLoader__\.load\(\{/u)
   assert.match(text, /id: "dsh-cache-probe"/u)
   assert.match(text, /conversation\.composer\.dock/u)
